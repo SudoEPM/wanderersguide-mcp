@@ -17,18 +17,20 @@ function formatCampaign(c: Campaign): string {
 }
 
 export async function findCampaign(args: {
-  id?: number;
-  name?: string;
+  id?: number | number[];
+  user_id?: string;
+  join_key?: string;
 }): Promise<string> {
   const body: Record<string, unknown> = {};
   if (args.id !== undefined) body.id = args.id;
-  if (args.name) body.name = args.name;
+  if (args.user_id) body.user_id = args.user_id;
+  if (args.join_key) body.join_key = args.join_key;
 
   const results = await wgFetch<Campaign[]>('find-campaign', body);
 
   if (!results || results.length === 0) {
-    const term = args.name ?? String(args.id) ?? 'your account';
-    return `No campaigns found matching "${term}".`;
+    const term = args.id !== undefined ? `ID ${args.id}` : 'your account';
+    return `No campaigns found for ${term}.`;
   }
 
   return results.map(formatCampaign).join('\n\n---\n\n');

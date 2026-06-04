@@ -33,13 +33,17 @@ export async function findFeat(args: {
   name?: string;
   id?: number | number[];
   type?: string;
-  traits?: string[];
+  traits?: number[];
+  prerequisites?: string[];
+  content_sources?: number[];
 }): Promise<string> {
   const body: Record<string, unknown> = {};
   if (args.name) body.name = args.name;
   if (args.id !== undefined) body.id = args.id;
   if (args.type) body.type = args.type;
   if (args.traits?.length) body.traits = args.traits;
+  if (args.prerequisites?.length) body.prerequisites = args.prerequisites;
+  if (args.content_sources?.length) body.content_sources = args.content_sources;
 
   const results = await wgFetch<AbilityBlock[]>('find-ability-block', body);
 
