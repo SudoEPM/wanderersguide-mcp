@@ -247,7 +247,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           party_size: { type: 'number', description: 'Number of players in the party' },
           enemy_creatures: {
             type: 'array',
-            description: 'Enemies to add. Repeat an entry for multiple copies of the same creature.',
+            description: 'Enemies to add from the database. Repeat an entry for multiple copies.',
             items: {
               type: 'object',
               properties: {
@@ -259,6 +259,59 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                 },
               },
               required: ['id'],
+            },
+          },
+          custom_enemies: {
+            type: 'array',
+            description: 'Fully custom creatures embedded inline — no database ID needed. Pass the complete Creature object shape: name, level, rarity, details.description, operations (for stats/traits/speeds/immunities), abilities_base (for special abilities), spells, inventory. Operations use the WG engine format: adjValue MAX_HEALTH_BONUS for HP, adjValue AC_BONUS for AC−10, addBonusToValue SAVE_FORT/REFLEX/WILL/PERCEPTION for saves, setValue SPEED/SPEED_FLY/SPEED_SWIM for movement, giveTrait for traits.',
+            items: {
+              type: 'object',
+              additionalProperties: true,
+              properties: {
+                name: { type: 'string', description: 'Creature name' },
+                level: { type: 'number', description: 'Creature level' },
+                rarity: { type: 'string', enum: ['COMMON', 'UNCOMMON', 'RARE', 'UNIQUE'], description: 'Rarity (default COMMON)' },
+                details: {
+                  type: 'object',
+                  description: 'Flavor and display info',
+                  properties: {
+                    description: { type: 'string' },
+                    image_url: { type: 'string' },
+                    adjustment: { type: 'string', enum: ['ELITE', 'WEAK'] },
+                  },
+                },
+                operations: {
+                  type: 'array',
+                  description: 'Stat-defining operations (HP, AC, saves, speeds, traits, immunities, etc.)',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string' },
+                      type: { type: 'string' },
+                      data: { type: 'object', additionalProperties: true },
+                    },
+                    required: ['type'],
+                  },
+                },
+                abilities_base: {
+                  type: 'array',
+                  description: 'Special abilities and actions',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      name: { type: 'string' },
+                      actions: { type: 'string', enum: ['ONE-ACTION', 'TWO-ACTIONS', 'THREE-ACTIONS', 'REACTION', 'FREE-ACTION'] },
+                      trigger: { type: 'string' },
+                      description: { type: 'string' },
+                      traits: { type: 'array', items: { type: 'number' } },
+                    },
+                    required: ['name'],
+                  },
+                },
+                spells: { type: 'object', additionalProperties: true, description: 'Spell slots, list, and innate casts' },
+                inventory: { type: 'object', additionalProperties: true, description: 'Coins and items' },
+              },
+              required: ['name', 'level'],
             },
           },
           ally_character_ids: {

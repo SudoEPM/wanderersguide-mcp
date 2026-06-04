@@ -4,14 +4,17 @@ interface Campaign {
   id?: number;
   name?: string;
   description?: string;
-  members?: string[];
+  join_key?: string;
+  user_id?: string;
+  recommended_variants?: Record<string, unknown>;
+  recommended_content_sources?: { enabled?: number[] };
   [key: string]: unknown;
 }
 
 function formatCampaign(c: Campaign): string {
   const lines: string[] = [];
   if (c.name) lines.push(`**${c.name}**${c.id !== undefined ? ` (ID: ${c.id})` : ''}`);
-  if (c.members?.length) lines.push(`Members: ${c.members.join(', ')}`);
+  if (c.join_key) lines.push(`Join Key: ${c.join_key}`);
   if (c.description) lines.push(`\n${c.description}`);
   return lines.join('\n');
 }

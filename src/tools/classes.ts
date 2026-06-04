@@ -1,21 +1,59 @@
 import { wgFetch } from '../client.js';
 
+interface Operation {
+  type: string;
+  data?: Record<string, unknown>;
+}
+
 interface Class {
   id?: number;
   name?: string;
+  rarity?: string;
   description?: string;
-  key_ability?: string[];
-  hp?: number;
-  traits?: string[];
+  skill_training_base?: number;
+  trait_id?: number;
+  artwork_url?: string;
+  operations?: Operation[];
   [key: string]: unknown;
+}
+
+function parseClassOps(ops: Operation[]): {
+  hp?: number;
+  keyAbilities: string[];
+} {
+  let hp: number | undefined;
+  const keyAbilities: string[] = [];
+
+  for (const op of ops) {
+    const v = op.data?.variable as string | undefined;
+    const val = op.data?.value;
+
+    if (op.type === 'adjValue' && v === 'MAX_HEALTH_BONUS' && typeof val === 'number') {
+      hp = (hp ?? 0) + val;
+    }
+    // Key ability is typically stored as giveAbilityBoost with partial:true or a specific key ability op
+    if (op.type === 'setValue' && v === 'KEY_ABILITY' && typeof val === 'string') {
+      keyAbilities.push(val);
+    }
+  }
+
+  return { hp, keyAbilities };
 }
 
 function formatClass(c: Class): string {
   const lines: string[] = [];
-  if (c.name) lines.push(`**${c.name}**${c.id !== undefined ? ` (ID: ${c.id})` : ''}`);
-  if (c.key_ability?.length) lines.push(`Key Ability: ${c.key_ability.join(' or ')}`);
-  if (c.hp !== undefined) lines.push(`HP per level: ${c.hp}`);
-  if (c.traits?.length) lines.push(`Traits: ${c.traits.join(', ')}`);
+  if (c.name) {
+    const rare = c.rarity && c.rarity !== 'COMMON' ? ` (${c.rarity})` : '';
+    lines.push(`**${c.name}**${rare}`);
+  }
+
+  const p = parseClassOps(c.operations ?? []);
+  const statParts: string[] = [];
+  if (p.hp !== undefined) statParts.push(`HP/level: ${p.hp}`);
+  if (c.skill_training_base !== undefined) statParts.push(`Trained Skills: ${c.skill_training_base}`);
+  if (statParts.length) lines.push(statParts.join(' | '));
+  if (p.keyAbilities.length) lines.push(`Key Ability: ${p.keyAbilities.join(' or ')}`);
+
   if (c.description) lines.push(`\n${c.description}`);
   return lines.join('\n');
 }

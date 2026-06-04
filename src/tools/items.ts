@@ -16,11 +16,15 @@ interface Item {
   id?: number;
   name?: string;
   level?: number;
+  rarity?: string;
   price?: Price | string | number;
   bulk?: string | number;
   traits?: (string | number)[];
-  category?: string;
   group?: string;
+  hands?: string;
+  size?: string;
+  usage?: string;
+  craft_requirements?: string;
   description?: string;
   [key: string]: unknown;
 }
@@ -43,7 +47,10 @@ function formatItem(item: Item): string {
     .filter(Boolean)
     .join(' ');
   if (header) lines.push(`**${header}**`);
-  if (item.category) lines.push(`Category: ${item.category}${item.group ? ` (${item.group})` : ''}`);
+  const groupParts = [item.group, item.size && item.size !== 'MEDIUM' ? item.size : null].filter(Boolean);
+  if (groupParts.length) lines.push(`Group: ${groupParts.join(' / ')}`);
+  if (item.usage) lines.push(`Usage: ${item.usage}${item.hands ? ` (${item.hands})` : ''}`);
+  if (item.rarity && item.rarity !== 'COMMON') lines.push(`Rarity: ${item.rarity}`);
   if (item.traits?.length) lines.push(`Traits: ${item.traits.join(', ')}`);
   const priceStr = formatPrice(item.price as Price | string | number | undefined);
   if (priceStr) lines.push(`Price: ${priceStr}`);

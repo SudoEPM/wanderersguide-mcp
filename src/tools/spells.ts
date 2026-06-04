@@ -14,11 +14,17 @@ interface Spell {
   id?: number;
   name?: string;
   rank?: number;
+  rarity?: string;
   traditions?: string[];
   traits?: (string | number)[];
   cast?: string;
+  cost?: string;
+  trigger?: string;
+  requirements?: string;
   range?: string;
+  area?: string;
   targets?: string;
+  defense?: string;
   duration?: string;
   description?: string;
   heightened?: {
@@ -30,12 +36,22 @@ interface Spell {
 
 function formatSpell(s: Spell): string {
   const lines: string[] = [];
-  if (s.name) lines.push(`**${s.name}**${s.rank !== undefined ? ` (Rank ${s.rank})` : ''}`);
+  const header = [
+    s.name,
+    s.rank !== undefined ? `Rank ${s.rank}` : null,
+    s.rarity && s.rarity !== 'COMMON' ? `(${s.rarity})` : null,
+  ].filter(Boolean).join(' ');
+  if (header) lines.push(`**${header}**`);
   if (s.traditions?.length) lines.push(`Traditions: ${s.traditions.join(', ')}`);
   if (s.traits?.length) lines.push(`Traits: ${s.traits.join(', ')}`);
   if (s.cast) lines.push(`Cast: ${s.cast}`);
+  if (s.cost) lines.push(`Cost: ${s.cost}`);
+  if (s.trigger) lines.push(`Trigger: ${s.trigger}`);
+  if (s.requirements) lines.push(`Requirements: ${s.requirements}`);
   if (s.range) lines.push(`Range: ${s.range}`);
+  if (s.area) lines.push(`Area: ${s.area}`);
   if (s.targets) lines.push(`Targets: ${s.targets}`);
+  if (s.defense) lines.push(`Defense: ${s.defense}`);
   if (s.duration) lines.push(`Duration: ${s.duration}`);
   if (s.description) lines.push(`\n${s.description}`);
   if (s.heightened?.text?.length) {

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { wgFetch } from '../client.js';
+import type { Creature } from './creatures.js';
 
 interface EncounterMetaData {
   description?: string;
@@ -121,9 +122,60 @@ function applyAdjustment(base: CreatureRecord, adjustment: Adjustment): Creature
   };
 }
 
+// Custom enemies use the same Creature shape as database creatures.
+// The caller is responsible for populating operations (stats), abilities_base,
+// spells, inventory, traits, etc. exactly as the WG API would return them.
+// A random id is assigned to avoid collisions with database IDs.
+export type { Creature };
+
+// Per the WG operations docs, list-str variables (IMMUNITIES, WEAKNESSES, RESISTANCES,
+// SENSES, LANGUAGES, etc.) treat each adjValue as appending exactly ONE entry.
+// Rather than maintaining an incomplete variable name set, we detect multi-entry strings
+// by content: any adjValue whose string value contains a comma before a letter (i.e. a
+// new entry, not a name/amount separator like "silver, 5") gets split into one op per entry.
+//
+// WG entry formats:
+//   Simple:      "paralyzed, "    (trailing ", " for entries without amounts)
+//   With amount: "silver, 5"      (comma between name and number within one entry)
+//
+// Callers may pass "silver 5" (space) or "silver, 5" (already correct) — both work.
+
+function formatMultiValueEntry(raw: string): string {
+  const s = raw.trim();
+  if (!s) return '';
+  // Already "name, number" format — keep as-is
+  if (/,\s*\d+$/.test(s)) return s;
+  // "name number" → "name, number"
+  const m = s.match(/^(.+?)\s+(\d+)$/);
+  if (m) return `${m[1]}, ${m[2]}`;
+  // Simple token — WG expects trailing ", "
+  return `${s}, `;
+}
+
+function normalizeMultiValueOps(ops: import('./creatures.js').Operation[]): import('./creatures.js').Operation[] {
+  const result: import('./creatures.js').Operation[] = [];
+  for (const op of ops) {
+    const val = op.data?.value;
+    if (op.type === 'adjValue' && typeof val === 'string') {
+      // Split on commas followed by a letter — those are list-entry separators.
+      // Commas before a digit ("silver, 5") are name/amount separators and must NOT split.
+      const entries = val.split(/,\s*(?=[a-zA-Z])/).map((s) => formatMultiValueEntry(s)).filter(Boolean);
+      if (entries.length > 1) {
+        for (const entry of entries) {
+          result.push({ ...op, id: randomUUID(), data: { ...op.data, value: entry } });
+        }
+        continue;
+      }
+    }
+    result.push(op);
+  }
+  return result;
+}
+
 async function buildCombatants(
   enemy_creatures: EnemyCreatureInput[] = [],
   ally_character_ids: number[] = [],
+  custom_enemies: Creature[] = [],
 ): Promise<CombatantEntry[]> {
   const list: CombatantEntry[] = [];
 
@@ -144,6 +196,15 @@ async function buildCombatants(
     list.push({ _id: randomUUID(), type: 'CHARACTER', ally: true, character: charId });
   }
 
+  for (const custom of custom_enemies) {
+    const creature: Creature = {
+      id: Math.floor(Math.random() * 9_000_000) + 1_000_000,
+      ...custom,
+      operations: normalizeMultiValueOps(custom.operations ?? []),
+    };
+    list.push({ _id: randomUUID(), type: 'CREATURE', ally: false, creature });
+  }
+
   return list;
 }
 
@@ -154,9 +215,10 @@ export async function createEncounter(args: {
   party_level?: number;
   party_size?: number;
   enemy_creatures?: EnemyCreatureInput[];
+  custom_enemies?: Creature[];
   ally_character_ids?: number[];
 }): Promise<string> {
-  const combatantList = await buildCombatants(args.enemy_creatures, args.ally_character_ids);
+  const combatantList = await buildCombatants(args.enemy_creatures, args.ally_character_ids, args.custom_enemies);
 
   const meta_data: EncounterMetaData = {};
   if (args.description) meta_data.description = args.description;

@@ -3,31 +3,38 @@ import { wgFetch } from '../client.js';
 interface Archetype {
   id?: number;
   name?: string;
+  rarity?: string;
   description?: string;
-  traits?: string[];
+  trait_id?: number;
+  artwork_url?: string;
   dedication_feat_id?: number;
+  content_source_id?: number;
   [key: string]: unknown;
 }
 
 interface ClassArchetype {
   id?: number;
   name?: string;
+  rarity?: string;
   description?: string;
   class_id?: number;
+  archetype_id?: number;
+  deprecated?: boolean;
   [key: string]: unknown;
 }
 
 function formatArchetype(a: Archetype): string {
   const lines: string[] = [];
-  if (a.name) lines.push(`**${a.name}**${a.id !== undefined ? ` (ID: ${a.id})` : ''}`);
-  if (a.traits?.length) lines.push(`Traits: ${a.traits.join(', ')}`);
+  const rare = a.rarity && a.rarity !== 'COMMON' ? ` (${a.rarity})` : '';
+  if (a.name) lines.push(`**${a.name}**${rare}${a.id !== undefined ? ` (ID: ${a.id})` : ''}`);
   if (a.description) lines.push(`\n${a.description}`);
   return lines.join('\n');
 }
 
 function formatClassArchetype(a: ClassArchetype): string {
   const lines: string[] = [];
-  if (a.name) lines.push(`**${a.name}**${a.id !== undefined ? ` (ID: ${a.id})` : ''}`);
+  const rare = a.rarity && a.rarity !== 'COMMON' ? ` (${a.rarity})` : '';
+  if (a.name) lines.push(`**${a.name}**${rare}${a.id !== undefined ? ` (ID: ${a.id})` : ''}`);
   if (a.class_id !== undefined) lines.push(`Class ID: ${a.class_id}`);
   if (a.description) lines.push(`\n${a.description}`);
   return lines.join('\n');

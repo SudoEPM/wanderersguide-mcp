@@ -3,16 +3,19 @@ import { wgFetch } from '../client.js';
 interface VersatileHeritage {
   id?: number;
   name?: string;
+  rarity?: string;
   description?: string;
   heritage_id?: number;
-  traits?: string[];
+  trait_id?: number;
+  artwork_url?: string;
+  content_source_id?: number;
   [key: string]: unknown;
 }
 
 function formatVersatileHeritage(v: VersatileHeritage): string {
   const lines: string[] = [];
-  if (v.name) lines.push(`**${v.name}**${v.id !== undefined ? ` (ID: ${v.id})` : ''}`);
-  if (v.traits?.length) lines.push(`Traits: ${v.traits.join(', ')}`);
+  const rare = v.rarity && v.rarity !== 'COMMON' ? ` (${v.rarity})` : '';
+  if (v.name) lines.push(`**${v.name}**${rare}${v.id !== undefined ? ` (ID: ${v.id})` : ''}`);
   if (v.description) lines.push(`\n${v.description}`);
   return lines.join('\n');
 }
