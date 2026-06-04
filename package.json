@@ -1,0 +1,19 @@
+{
+  "name": "wanderers-guide-mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing Wanderer's Guide Pathfinder 2e data to Claude",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "latest"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "@types/node": "^20"
+  }
+}
