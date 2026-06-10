@@ -204,7 +204,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             description: 'Character ID or array of IDs',
           },
           user_id: { type: 'string', description: 'Filter by user UUID to retrieve all characters belonging to that user' },
-          campaign_id: { type: 'number', description: 'Filter by campaign ID to retrieve all characters in that campaign' },
+          campaign_id: { type: 'number', description: 'Filter by campaign ID to retrieve all characters in that campaign. Defaults to WG_CAMPAIGN_ID env var if not provided.' },
         },
       },
     },
@@ -230,7 +230,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object',
         properties: {
           id: { type: 'number', description: 'Specific encounter ID' },
-          campaign_id: { type: 'number', description: 'Filter by campaign ID' },
+          campaign_id: { type: 'number', description: 'Filter by campaign ID. Defaults to WG_CAMPAIGN_ID env var if not provided.' },
         },
       },
     },
@@ -240,7 +240,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object',
         properties: {
-          campaign_id: { type: 'number', description: 'Campaign ID to create the encounter in' },
+          campaign_id: { type: 'number', description: 'Campaign ID to create the encounter in. Defaults to WG_CAMPAIGN_ID env var if not provided.' },
           name: { type: 'string', description: 'Encounter name' },
           description: { type: 'string', description: 'Encounter description / GM notes' },
           party_level: { type: 'number', description: 'Average party level for XP budget display' },
@@ -320,7 +320,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             description: 'Character IDs to add as allied party members.',
           },
         },
-        required: ['campaign_id', 'name'],
+        required: ['name'],
       },
     },
     {
@@ -334,7 +334,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           description: { type: 'string', description: 'New encounter description' },
           party_level: { type: 'number', description: 'Party level for XP budget display' },
           party_size: { type: 'number', description: 'Number of players' },
-          campaign_id: { type: 'number', description: 'Move encounter to a different campaign' },
+          campaign_id: { type: 'number', description: 'Move encounter to a different campaign. Defaults to WG_CAMPAIGN_ID env var if not provided.' },
           icon: { type: 'string', description: 'Encounter icon name' },
           color: { type: 'string', description: 'Encounter color hex code' },
         },

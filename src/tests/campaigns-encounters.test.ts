@@ -35,6 +35,19 @@ describe('find_encounter', () => {
     // The Harpy's Lure has party_level: 5
     assert.match(result, /Party:/i);
   });
+
+  test('falls back to WG_CAMPAIGN_ID env var when campaign_id is omitted', { timeout: TIMEOUT }, async () => {
+    const prev = process.env.WG_CAMPAIGN_ID;
+    process.env.WG_CAMPAIGN_ID = '2391';
+    try {
+      const result = await findEncounter({});
+      assertIsString(result, 'find_encounter(env fallback)');
+      assertNoObjectObject(result, 'find_encounter(env fallback)');
+    } finally {
+      if (prev === undefined) delete process.env.WG_CAMPAIGN_ID;
+      else process.env.WG_CAMPAIGN_ID = prev;
+    }
+  });
 });
 
 describe('create_encounter with custom creature', () => {
@@ -106,6 +119,42 @@ describe('create_encounter with custom creature', () => {
 
     // Clean up
     await deleteEncounter({ id: encId });
+  });
+});
+
+describe('create_encounter WG_CAMPAIGN_ID fallback', () => {
+  test('creates encounter using WG_CAMPAIGN_ID env var when campaign_id is omitted', { timeout: TIMEOUT * 3 }, async () => {
+    const campaigns = await findCampaign({});
+    const idMatch = campaigns.match(/\(ID:\s*(\d+)\)/);
+    if (!idMatch) { console.log('  (skipped: no campaigns found)'); return; }
+    const campaignId = idMatch[1];
+
+    const prev = process.env.WG_CAMPAIGN_ID;
+    process.env.WG_CAMPAIGN_ID = campaignId;
+    let encId: number | undefined;
+    try {
+      const created = await createEncounter({ name: `Env Fallback Test ${Date.now()}` });
+      assertIsString(created, 'create_encounter(env fallback)');
+      assert.match(created, /created successfully/i);
+      const match = created.match(/\(ID:\s*(\d+)\)/);
+      if (match) encId = parseInt(match[1], 10);
+    } finally {
+      if (prev === undefined) delete process.env.WG_CAMPAIGN_ID;
+      else process.env.WG_CAMPAIGN_ID = prev;
+      if (encId !== undefined) await deleteEncounter({ id: encId });
+    }
+  });
+
+  test('returns error message when campaign_id is omitted and WG_CAMPAIGN_ID is not set', async () => {
+    const prev = process.env.WG_CAMPAIGN_ID;
+    delete process.env.WG_CAMPAIGN_ID;
+    try {
+      const result = await createEncounter({ name: 'No Campaign Test' });
+      assertIsString(result, 'create_encounter(no campaign)');
+      assert.match(result, /WG_CAMPAIGN_ID/i);
+    } finally {
+      if (prev !== undefined) process.env.WG_CAMPAIGN_ID = prev;
+    }
   });
 });
 

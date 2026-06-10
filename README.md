@@ -8,6 +8,8 @@ An MCP server that exposes [Wanderer's Guide](https://wanderersguide.app) Pathfi
 2. Create a `.env` file in the project root:
    ```
    WG_API_KEY=your-36-character-uuid-api-key-here
+   # Optional: default campaign ID used when campaign_id is not passed to a tool
+   WG_CAMPAIGN_ID=your-campaign-id
    ```
 3. Install dependencies and build:
    ```
@@ -81,7 +83,7 @@ An MCP server that exposes [Wanderer's Guide](https://wanderersguide.app) Pathfi
 
 ## Running tests
 
-Integration tests make real API calls and require `WG_API_KEY` to be set in `.env`:
+Integration tests make real API calls and require `WG_API_KEY` to be set in `.env`. Set `WG_CAMPAIGN_ID` as well to exercise the env-var fallback tests:
 
 ```
 npm test

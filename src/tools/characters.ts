@@ -383,14 +383,15 @@ export async function findCharacter(args: {
   const body: Record<string, unknown> = {};
   if (args.id !== undefined) body.id = args.id;
   if (args.user_id) body.user_id = args.user_id;
-  if (args.campaign_id !== undefined) body.campaign_id = args.campaign_id;
+  const campaignId = args.campaign_id ?? (process.env.WG_CAMPAIGN_ID ? Number(process.env.WG_CAMPAIGN_ID) : undefined);
+  if (campaignId !== undefined) body.campaign_id = campaignId;
 
   try {
     const raw = await wgFetch<Character | Character[]>('find-character', body);
     const results: Character[] = Array.isArray(raw) ? raw : raw ? [raw] : [];
 
     if (results.length === 0) {
-      const term = args.id !== undefined ? `ID ${args.id}` : args.campaign_id !== undefined ? `campaign ${args.campaign_id}` : 'given criteria';
+      const term = args.id !== undefined ? `ID ${args.id}` : campaignId !== undefined ? `campaign ${campaignId}` : 'given criteria';
       return `No character found matching ${term}.`;
     }
 

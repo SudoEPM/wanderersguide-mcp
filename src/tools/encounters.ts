@@ -59,7 +59,8 @@ export async function findEncounter(args: {
 }): Promise<string> {
   const body: Record<string, unknown> = {};
   if (args.id !== undefined) body.id = args.id;
-  if (args.campaign_id !== undefined) body.campaign_id = args.campaign_id;
+  const campaignId = args.campaign_id ?? (args.id === undefined && process.env.WG_CAMPAIGN_ID ? Number(process.env.WG_CAMPAIGN_ID) : undefined);
+  if (campaignId !== undefined) body.campaign_id = campaignId;
 
   const results = await wgFetch<Encounter[]>('find-encounter', body);
 
@@ -209,7 +210,7 @@ async function buildCombatants(
 }
 
 export async function createEncounter(args: {
-  campaign_id: number;
+  campaign_id?: number;
   name: string;
   description?: string;
   party_level?: number;
@@ -218,6 +219,11 @@ export async function createEncounter(args: {
   custom_enemies?: Creature[];
   ally_character_ids?: number[];
 }): Promise<string> {
+  const campaignId = args.campaign_id ?? (process.env.WG_CAMPAIGN_ID ? Number(process.env.WG_CAMPAIGN_ID) : undefined);
+  if (campaignId === undefined) {
+    return 'No campaign ID provided and WG_CAMPAIGN_ID environment variable is not set.';
+  }
+
   const combatantList = await buildCombatants(args.enemy_creatures, args.ally_character_ids, args.custom_enemies);
 
   const meta_data: EncounterMetaData = {};
@@ -226,7 +232,7 @@ export async function createEncounter(args: {
   if (args.party_size !== undefined) meta_data.party_size = args.party_size;
 
   const body: Record<string, unknown> = {
-    campaign_id: args.campaign_id,
+    campaign_id: campaignId,
     name: args.name,
     combatants: { list: combatantList },
     meta_data,
@@ -256,7 +262,8 @@ export async function updateEncounter(args: {
   // fields that are being changed to avoid overwriting existing values.
   const body: Record<string, unknown> = { id: args.id };
   if (args.name) body.name = args.name;
-  if (args.campaign_id !== undefined) body.campaign_id = args.campaign_id;
+  const campaignId = args.campaign_id ?? (process.env.WG_CAMPAIGN_ID ? Number(process.env.WG_CAMPAIGN_ID) : undefined);
+  if (campaignId !== undefined) body.campaign_id = campaignId;
   if (args.icon) body.icon = args.icon;
   if (args.color) body.color = args.color;
 

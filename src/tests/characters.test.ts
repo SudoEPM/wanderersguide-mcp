@@ -67,6 +67,20 @@ describe('find_character', () => {
     assertNoObjectObject(result, 'find_character(campaign_id=2391)');
   });
 
+  test('falls back to WG_CAMPAIGN_ID env var when campaign_id is omitted', { timeout: TIMEOUT * 2 }, async () => {
+    const prev = process.env.WG_CAMPAIGN_ID;
+    process.env.WG_CAMPAIGN_ID = '2391';
+    try {
+      const result = await findCharacter({});
+      assertIsString(result, 'find_character(env fallback)');
+      assert.match(result, /Bomaru/i);
+      assertNoObjectObject(result, 'find_character(env fallback)');
+    } finally {
+      if (prev === undefined) delete process.env.WG_CAMPAIGN_ID;
+      else process.env.WG_CAMPAIGN_ID = prev;
+    }
+  });
+
   test('returns graceful message for unauthorized character', { timeout: TIMEOUT }, async () => {
     const result = await findCharacter({ id: 1 });
     assertIsString(result, 'find_character(unauthorized)');
