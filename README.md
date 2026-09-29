@@ -1,21 +1,65 @@
 # Wanderer's Guide MCP Server
 
+[![MCP Badge](https://lobehub.com/badge/mcp/sudoepm-wanderersguide-mcp)](https://lobehub.com/mcp/sudoepm-wanderersguide-mcp)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 An MCP server that exposes [Wanderer's Guide](https://wanderersguide.app) Pathfinder 2e data to Claude.
 
-## Setup
+## Quick start
 
-1. Obtain an API key from your Wanderer's Guide account (Developer → API Clients).
-2. Create a `.env` file in the project root:
-   ```
-   WG_API_KEY=your-36-character-uuid-api-key-here
-   # Optional: default campaign ID used when campaign_id is not passed to a tool
-   WG_CAMPAIGN_ID=your-campaign-id
-   ```
-3. Install dependencies and build:
+Get an API key from your Wanderer's Guide account (Developer → API Clients), then add this to your MCP client configuration (e.g. `claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "wanderers-guide": {
+      "command": "npx",
+      "args": ["-y", "github:SudoEPM/wanderersguide-mcp"],
+      "env": {
+        "WG_API_KEY": "your-36-character-uuid-api-key-here",
+        "WG_CAMPAIGN_ID": "optional-default-campaign-id"
+      }
+    }
+  }
+}
+```
+
+For Claude Code:
+
+```
+claude mcp add wanderers-guide -e WG_API_KEY=your-key -- npx -y github:SudoEPM/wanderersguide-mcp
+```
+
+`WG_CAMPAIGN_ID` is optional: it sets the default campaign for tools when `campaign_id` is not passed.
+
+Requires Node.js 20+.
+
+## Manual setup
+
+1. Clone the repository, then install dependencies and build:
    ```
    npm install && npm run build
    ```
-4. Add the server to your MCP client configuration pointing to `node dist/index.js`.
+2. Point your MCP client at `node /path/to/wanderersguide-mcp/dist/index.js` with `WG_API_KEY` set in its `env`.
+
+The server starts without a key so clients can list its tools, prompts, and resources, but every API call returns an error until `WG_API_KEY` is set.
+
+## Prompts
+
+| Prompt | Arguments | Description |
+|---|---|---|
+| `rules_lookup` | `question` | Answer a rules question, citing Wanderer's Guide text |
+| `build_encounter` | `campaign_id`, `party_level`, `party_size`, `difficulty`, `theme` | Design a balanced encounter by XP budget and save it to a campaign |
+| `explain_spell` | `spell_name`, `rank` | Plain-language spell breakdown, including heightening |
+| `character_summary` | `character_id` | Summarize a character sheet and suggest next-level options |
+| `generate_loot` | `party_level`, `theme` | Level-appropriate treasure using real items |
+
+## Resources
+
+| URI | Description |
+|---|---|
+| `wg://content-sources` | Published books and packs with their IDs |
+| `wg://{type}/{id}` | A single record by ID, where `type` is one of `spell`, `feat`, `item`, `creature`, `ancestry`, `background`, `class`, `archetype`, `trait`, `language`, `character`, `campaign`, `encounter` |
 
 ## Implemented tools
 

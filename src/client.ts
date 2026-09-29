@@ -12,7 +12,11 @@ export async function wgFetch<T = unknown>(
   body: object
 ): Promise<T> {
   const apiKey = process.env.WG_API_KEY;
-  if (!apiKey) throw new WGError('WG_API_KEY is not set');
+  if (!apiKey || apiKey.length !== 36) {
+    throw new WGError(
+      "WG_API_KEY must be set to a 36-character UUID. Get one from your Wanderer's Guide account (Developer → API Clients)."
+    );
+  }
 
   const url = `${BASE_URL}/${functionName}`;
   let response: Response;

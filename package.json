@@ -1,17 +1,48 @@
 {
   "name": "wanderers-guide-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server exposing Wanderer's Guide Pathfinder 2e data to Claude",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "wanderers-guide-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "!dist/tests",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
+    "prepare": "tsc",
     "test": "tsc && node --env-file=.env --test --test-reporter spec dist/tests/run-all.js"
   },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "pathfinder",
+    "pf2e",
+    "wanderers-guide",
+    "ttrpg"
+  ],
+  "author": "SudoEPM",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SudoEPM/wanderersguide-mcp.git"
+  },
+  "homepage": "https://github.com/SudoEPM/wanderersguide-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/SudoEPM/wanderersguide-mcp/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "latest"
+    "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "devDependencies": {
     "typescript": "^5",

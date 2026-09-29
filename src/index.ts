@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -21,18 +22,23 @@ import { findLanguage } from './tools/languages.js';
 import { findTrait } from './tools/traits.js';
 import { findVersatileHeritage } from './tools/versatile-heritages.js';
 import { findContentSource, findContentUpdate } from './tools/content-sources.js';
+import { registerPrompts } from './prompts.js';
+import { registerResources } from './resources.js';
 
-// Validate env on startup
+// Warn (but keep running) when the key is missing, so clients can still list
+// tools, prompts, and resources. Calls that hit the API will return an error.
 const apiKey = process.env.WG_API_KEY;
 if (!apiKey || apiKey.length !== 36) {
-  console.error('ERROR: WG_API_KEY must be set to a 36-character UUID before starting.');
-  process.exit(1);
+  console.error('WARNING: WG_API_KEY is not set to a 36-character UUID. API calls will fail until it is configured.');
 }
 
 const server = new Server(
-  { name: 'wanderers-guide', version: '0.1.0' },
-  { capabilities: { tools: {} } }
+  { name: 'wanderers-guide', version: '0.2.0' },
+  { capabilities: { tools: {}, prompts: {}, resources: {} } }
 );
+
+registerPrompts(server);
+registerResources(server);
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
