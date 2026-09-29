@@ -85,7 +85,7 @@ export async function searchContent(args: {
 
 // ── Advanced search ───────────────────────────────────────────────────────────
 
-interface AdvancedResult extends SearchResult {
+export interface AdvancedResult extends SearchResult {
   rank?: number;
   rarity?: string;
   actions?: string | null;
@@ -182,7 +182,7 @@ export interface AdvancedSearchArgs {
   offset?: number;
 }
 
-async function runAdvancedSearch(args: AdvancedSearchArgs): Promise<AdvancedResult[]> {
+export async function runAdvancedSearch(args: AdvancedSearchArgs): Promise<AdvancedResult[]> {
   const spec = ADVANCED_TYPES[args.type];
   if (!spec) throw new Error(`Unsupported type "${args.type}". Use one of: ${ADVANCED_SEARCH_TYPES.join(', ')}`);
 

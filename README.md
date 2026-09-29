@@ -50,7 +50,7 @@ The main use case: ask Claude for something like *"a difficult encounter for 4 l
 
 - **Finding creatures:** `advanced_search` filters by level range, rarity, name, and traits. Traits are the best way to express a theme: `traits_any` matches any of several (e.g. `["Air", "Beast"]` for sky predators), `traits` requires all, results show each creature's traits, and broad searches summarize the most common traits; `find_creature` shows complete stat blocks (strikes, spells, abilities, skills) so Claude can judge roles and tactics.
 - **Difficulty:** `encounter_budget` and every encounter response apply GM Core's XP rules (creature XP by level difference, budgets adjusted for party size, elite/weak level changes).
-- **Custom creatures** are written as a normal PF2e stat block: final AC, HP, saves, skills, strikes (`"2d8+6 slashing plus 1d6 fire"`), spells, items, traits, and languages by name. Or start from an existing creature with `base_creature_id` and override only what changes. The MCP converts this to Wanderer's Guide's creature format the same way the app's own importer does: it looks up spell, item, trait, and language IDs, and writes each stat as the difference from what the rules engine derives from level and attributes, so the sheet shows exactly the numbers you asked for. Standard abilities can be copied from any creature with `from_creature`.
+- **Custom creatures** are written as a normal PF2e stat block: final AC, HP, saves, skills, strikes (`"2d8+6 slashing plus 1d6 fire"`), spells, items, traits, and languages by name. Or start from an existing creature with `base_creature_id` and override only what changes. The MCP converts this to Wanderer's Guide's creature format the same way the app's own importer does: it looks up spell, item, trait, and language IDs, and writes each stat as the difference from what the rules engine derives from level and attributes, so the sheet shows exactly the numbers you asked for. Standard abilities can be copied from any creature with `from_creature`. `creature_benchmarks` gives balanced numbers for a level (measured from official stat blocks), and `preview_custom_creature` rates each stat against them.
 - **Saving:** `create_encounter` saves to a campaign (Wanderer's Guide requires Patreon tier 1+ to create encounters). With `dry_run` and `export_file` it writes the same `{ "version": 1, "encounter": … }` JSON that Wanderer's Guide exports, which you can import from any encounter's settings.
 
 ## Prompts
@@ -94,9 +94,12 @@ The main use case: ask Claude for something like *"a difficult encounter for 4 l
 | `find_campaign` | `POST /find-campaign` | Retrieve campaigns by ID, user UUID, or join key |
 | `find_encounter` | `POST /find-encounter` | Retrieve encounters by ID or campaign ID, with XP and difficulty; `detailed` adds full stat blocks |
 | `encounter_budget` | — (local) | XP budgets for a party, or the XP total and difficulty of a planned creature list |
+| `creature_benchmarks` | — (derived from `POST /search-data`) | Low / moderate / high / extreme stat bands for a creature level, measured from official stat blocks |
 | `preview_custom_creature` | — (local, plus lookups) | Build a custom creature without saving and show the stat block Wanderer's Guide will compute |
 | `create_encounter` | `POST /create-encounter` | Create an encounter with database and custom creatures (elite/weak, counts), report XP; optional JSON export or dry run |
-| `update_encounter` | `POST /create-encounter` (with `id`) | Update an existing encounter's name, description, or color |
+| `add_combatants` | `POST /create-encounter` (with `id`) | Add database or custom creatures (or allies) to an existing encounter; reports the new XP |
+| `remove_combatants` | `POST /create-encounter` (with `id`) | Remove combatants by position or name; reports the new XP |
+| `update_encounter` | `POST /create-encounter` (with `id`) | Update an existing encounter's name, description, party info, or color |
 | `delete_encounter` | `POST /delete-content` (`type: encounter`) | Permanently delete an encounter |
 
 > **Note on encounter update/delete:** The API does not expose `/update-encounter` or `/delete-encounter` as standalone endpoints. Updates use the same `/create-encounter` upsert pattern (pass `id` to update), and deletion uses the generic `/delete-content` endpoint with `type: 'encounter'`.

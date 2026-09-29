@@ -142,3 +142,41 @@ describe('encounter planning', () => {
     }
   });
 });
+
+describe('creature benchmarks', () => {
+  test('bands are ordered and a preview compares against them', { timeout: TIMEOUT * 3 }, async () => {
+    const { getBenchmarks } = await import('../tools/benchmarks.js');
+    const b = await getBenchmarks(5);
+    assert.ok(b.sample > 20, 'expected many official level-5 creatures');
+    for (const band of Object.values(b.bands)) {
+      assert.ok(band!.low <= band!.moderate && band!.moderate <= band!.high && band!.high <= band!.extreme);
+    }
+    const { previewCustomCreature } = await import('../tools/encounters.js');
+    const preview = await previewCustomCreature({ name: 'Glass Cannon', level: 5, perception: 12, ac: 15, hp: 30, saves: { fort: 8, ref: 15, will: 9 } });
+    assert.match(preview, /Compared with \d+ official level-5 creatures: AC 15 below low, HP 30 below low/);
+  });
+});
+
+describe('editing encounter combatants', () => {
+  test('add and remove combatants, and update_encounter keeps other meta fields', { timeout: TIMEOUT * 6 }, async () => {
+    const { addCombatants, removeCombatants, updateEncounter, findEncounter, deleteEncounter } = await import('../tools/encounters.js');
+    const { getCurrentUserId } = await import('../tools/campaigns.js');
+    const [campaign] = await wgFetch<{ id: number }[]>('find-campaign', { user_id: await getCurrentUserId() });
+    if (!campaign) return;
+    const created = await createEncounter({ campaign_id: campaign.id, name: `Edit Test ${Date.now()}`, party_level: 5, description: 'keep me', enemy_creatures: [{ id: 10096, count: 2 }] });
+    const id = Number(created.match(/\(ID: (\d+)\)/)![1]);
+    try {
+      const added = await addCombatants({ encounter_id: id, enemy_creatures: [{ id: 10123 }] });
+      assert.match(added, /3\. \[enemy\] Harpy Level 5/);
+      const removed = await removeCombatants({ encounter_id: id, positions: [1, 2] });
+      assert.match(removed, /Total: 40 XP/);
+      await updateEncounter({ id, party_size: 5 });
+      const found = await findEncounter({ id });
+      assert.match(found, /keep me/);
+      assert.match(found, /Party: Level 5, 5 players/);
+      assert.match(found, /1\. \[enemy\] Harpy Level 5/);
+    } finally {
+      await deleteEncounter({ id });
+    }
+  });
+});

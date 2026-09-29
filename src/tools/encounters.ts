@@ -22,6 +22,7 @@ import {
   type Creature as BuilderCreature,
   type StatBlock,
 } from './creature-builder.js';
+import { compareToBenchmarks } from './benchmarks.js';
 
 interface EncounterMetaData {
   description?: string;
@@ -103,9 +104,9 @@ function xpEntryOf(c: CombatantEntry): XpEntry | null {
 
 // ── find_encounter ────────────────────────────────────────────────────────────
 
-function formatCombatant(c: CombatantEntry): string {
+function formatCombatant(c: CombatantEntry, position: number): string {
   if (c.type === 'CHARACTER') {
-    return `  - [ally] Character ID ${c.character}`;
+    return `  ${position}. [ally] Character ID ${c.character}`;
   }
   const cr = c.creature as { name?: string; level?: number } | undefined;
   const parts = [
@@ -113,7 +114,7 @@ function formatCombatant(c: CombatantEntry): string {
     cr?.name ?? 'Unknown',
     cr?.level !== undefined ? `Level ${cr.level}` : null,
   ].filter(Boolean);
-  return `  - ${parts.join(' ')}`;
+  return `  ${position}. ${parts.join(' ')}`;
 }
 
 async function formatEncounter(e: Encounter, detailed: boolean): Promise<string> {
@@ -126,7 +127,7 @@ async function formatEncounter(e: Encounter, detailed: boolean): Promise<string>
   const combatants = e.combatants?.list ?? [];
   if (combatants.length) {
     lines.push(`\nCombatants:`);
-    for (const c of combatants) lines.push(formatCombatant(c));
+    combatants.forEach((c, i) => lines.push(formatCombatant(c, i + 1)));
     const xpEntries = combatants.map(xpEntryOf).filter((x): x is XpEntry => x !== null);
     if (md?.party_level !== undefined && xpEntries.length) lines.push(`\n${xpReport(xpEntries, md.party_level, md.party_size ?? 4)}`);
   }
@@ -321,6 +322,62 @@ async function buildCombatants(
   return { list, warnings, customBlocks };
 }
 
+async function fetchEncounter(id: number): Promise<Encounter> {
+  const [encounter] = toArray(await wgFetch<Encounter | Encounter[]>('find-encounter', { id: [id] }));
+  if (!encounter) throw new Error(`Encounter ${id} not found.`);
+  return encounter;
+}
+
+/** Save a new combatant list (a combatants-only upsert keeps the encounter's other fields) and describe the result. */
+async function saveCombatants(encounter: Encounter, list: CombatantEntry[], header: string[]): Promise<string> {
+  await wgFetch<unknown>('create-encounter', { id: encounter.id, combatants: { list } });
+  const md = encounter.meta_data;
+  const lines = [...header, '', 'Combatants:', ...list.map((c, i) => formatCombatant(c, i + 1))];
+  const xpEntries = list.map(xpEntryOf).filter((x): x is XpEntry => x !== null);
+  if (xpEntries.length) lines.push('', xpReport(xpEntries, md?.party_level, md?.party_size ?? 4));
+  return lines.join('\n');
+}
+
+export async function addCombatants(args: {
+  encounter_id: number;
+  enemy_creatures?: EnemyCreatureInput[];
+  custom_enemies?: CustomEnemyInput[];
+  ally_character_ids?: number[];
+}): Promise<string> {
+  const encounter = await fetchEncounter(args.encounter_id);
+  const added = await buildCombatants(args.enemy_creatures, args.ally_character_ids, args.custom_enemies);
+  if (!added.list.length) return ['No combatants were added.', ...added.warnings.map((w) => `- ${w}`)].join('\n');
+  const list = [...(encounter.combatants?.list ?? []), ...added.list];
+  const header = [`Added ${added.list.length} combatant(s) to "${encounter.name}" (ID: ${encounter.id}).`];
+  if (added.warnings.length) header.push('Warnings:', ...added.warnings.map((w) => `- ${w}`));
+  let text = await saveCombatants(encounter, list, header);
+  for (const block of added.customBlocks) text += `\n\nCustom creature as saved:\n${formatStatBlock(block)}`;
+  return text;
+}
+
+export async function removeCombatants(args: {
+  encounter_id: number;
+  positions?: number[];
+  names?: string[];
+}): Promise<string> {
+  const encounter = await fetchEncounter(args.encounter_id);
+  const current = encounter.combatants?.list ?? [];
+  const positions = new Set(args.positions ?? []);
+  const names = new Set((args.names ?? []).map((n) => n.trim().toLowerCase()));
+  if (!positions.size && !names.size) return 'Pass positions (as numbered by find_encounter) or names to remove.';
+
+  const nameOf = (c: CombatantEntry) =>
+    c.type === 'CHARACTER' ? `character ${c.character}` : String((c.creature as { name?: string } | undefined)?.name ?? '').toLowerCase();
+  const removed: string[] = [];
+  const list = current.filter((c, i) => {
+    const drop = positions.has(i + 1) || names.has(nameOf(c));
+    if (drop) removed.push(formatCombatant(c, i + 1).trim());
+    return !drop;
+  });
+  if (!removed.length) return 'No combatants matched; use find_encounter to see positions and names.';
+  return saveCombatants(encounter, list, [`Removed from "${encounter.name}" (ID: ${encounter.id}):`, ...removed.map((r) => `- ${r}`)]);
+}
+
 // ── create / update / delete ──────────────────────────────────────────────────
 
 export async function createEncounter(args: {
@@ -391,8 +448,8 @@ export async function updateEncounter(args: {
   icon?: string;
   color?: string;
 }): Promise<string> {
-  // The API uses create-encounter with an id as upsert. Only pass meta_data
-  // fields that are being changed to avoid overwriting existing values.
+  // The API uses create-encounter with an id as upsert. meta_data is replaced as a
+  // whole, so changed fields are merged into the stored meta_data.
   const body: Record<string, unknown> = { id: args.id };
   if (args.name) body.name = args.name;
   const campaignId = args.campaign_id ?? (process.env.WG_CAMPAIGN_ID ? Number(process.env.WG_CAMPAIGN_ID) : undefined);
@@ -405,7 +462,7 @@ export async function updateEncounter(args: {
   if (args.description !== undefined) { meta.description = args.description; hasMeta = true; }
   if (args.party_level !== undefined) { meta.party_level = args.party_level; hasMeta = true; }
   if (args.party_size !== undefined) { meta.party_size = args.party_size; hasMeta = true; }
-  if (hasMeta) body.meta_data = meta;
+  if (hasMeta) body.meta_data = { ...(await fetchEncounter(args.id)).meta_data, ...meta };
 
   await wgFetch<unknown>('create-encounter', body);
   return `Encounter ID ${args.id} updated successfully.`;
@@ -457,6 +514,8 @@ export async function previewCustomCreature(args: StatBlock | BasedStatBlock): P
   }
   const built = await buildCustomCreature(args);
   const parts = [formatStatBlock(built.statBlock)];
+  const comparison = await compareToBenchmarks(built.statBlock);
+  if (comparison) parts.push('', comparison);
   if (built.warnings.length) parts.push('', 'Warnings:', ...built.warnings.map((w) => `- ${w}`));
   return parts.join('\n');
 }

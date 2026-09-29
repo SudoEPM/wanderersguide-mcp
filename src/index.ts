@@ -15,13 +15,23 @@ import { findAncestry } from './tools/ancestries.js';
 import { findBackground } from './tools/backgrounds.js';
 import { findCharacter } from './tools/characters.js';
 import { findCampaign } from './tools/campaigns.js';
-import { findEncounter, createEncounter, updateEncounter, deleteEncounter, encounterBudget, previewCustomCreature } from './tools/encounters.js';
+import {
+  findEncounter,
+  createEncounter,
+  updateEncounter,
+  deleteEncounter,
+  encounterBudget,
+  previewCustomCreature,
+  addCombatants,
+  removeCombatants,
+} from './tools/encounters.js';
 import { findArchetype, findClassArchetype } from './tools/archetypes.js';
 import { findClass } from './tools/classes.js';
 import { findLanguage } from './tools/languages.js';
 import { findTrait } from './tools/traits.js';
 import { findVersatileHeritage } from './tools/versatile-heritages.js';
 import { findContentSource, findContentUpdate } from './tools/content-sources.js';
+import { creatureBenchmarks } from './tools/benchmarks.js';
 import { registerPrompts } from './prompts.js';
 import { registerResources } from './resources.js';
 
@@ -456,9 +466,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'creature_benchmarks',
+      description:
+        'Typical stats for creatures of a level (AC, HP, Perception, saves, strike attack and damage, spell DC, best skill) as low / moderate / high / extreme bands, ' +
+        'measured from the official creatures in the database. Use it to set balanced numbers for a custom creature.',
+      inputSchema: {
+        type: 'object',
+        properties: { level: { type: 'number', description: 'Creature level (-1 to 25)' } },
+        required: ['level'],
+      },
+    },
+    {
       name: 'preview_custom_creature',
       description:
-        'Build a custom creature without saving it and show the stat block Wanderer\'s Guide will compute, plus warnings (unknown spells, traits, items). ' +
+        'Build a custom creature without saving it and show the stat block Wanderer\'s Guide will compute, how its stats compare with official creatures of its level, and warnings (unknown spells, traits, items). ' +
         'Use it to check a custom enemy before passing the same object in create_encounter.custom_enemies.',
       inputSchema: CUSTOM_CREATURE_SCHEMA,
     },
@@ -510,8 +531,50 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'add_combatants',
+      description: 'Add creatures (database or custom) or allied characters to an existing encounter, then report the new XP total.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          encounter_id: { type: 'number', description: 'Encounter ID' },
+          enemy_creatures: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'number', description: 'Creature ID' },
+                adjustment: { type: 'string', enum: ['ELITE', 'WEAK'] },
+                count: { type: 'number', description: 'How many copies (default 1)' },
+              },
+              required: ['id'],
+            },
+          },
+          custom_enemies: {
+            type: 'array',
+            description: 'Custom creatures, same shape as in create_encounter',
+            items: { ...CUSTOM_CREATURE_SCHEMA, properties: { ...CUSTOM_CREATURE_SCHEMA.properties, count: { type: 'number' } } },
+          },
+          ally_character_ids: { type: 'array', items: { type: 'number' } },
+        },
+        required: ['encounter_id'],
+      },
+    },
+    {
+      name: 'remove_combatants',
+      description: 'Remove combatants from an existing encounter by position (as numbered by find_encounter) or by exact name (removes every copy), then report the new XP total.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          encounter_id: { type: 'number', description: 'Encounter ID' },
+          positions: { type: 'array', items: { type: 'number' }, description: '1-based positions from find_encounter' },
+          names: { type: 'array', items: { type: 'string' }, description: 'Creature names, e.g. ["Harpy (elite)"]' },
+        },
+        required: ['encounter_id'],
+      },
+    },
+    {
       name: 'update_encounter',
-      description: 'Update metadata on an existing encounter (name, description, party info, icon, color). Does not modify combatants.',
+      description: 'Update metadata on an existing encounter (name, description, party info, icon, color). Use add_combatants / remove_combatants to change creatures.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -714,8 +777,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'encounter_budget':
         text = await encounterBudget(args as unknown as Parameters<typeof encounterBudget>[0]);
         break;
+      case 'creature_benchmarks':
+        text = await creatureBenchmarks(args as unknown as Parameters<typeof creatureBenchmarks>[0]);
+        break;
       case 'preview_custom_creature':
         text = await previewCustomCreature(args as unknown as Parameters<typeof previewCustomCreature>[0]);
+        break;
+      case 'add_combatants':
+        text = await addCombatants(args as unknown as Parameters<typeof addCombatants>[0]);
+        break;
+      case 'remove_combatants':
+        text = await removeCombatants(args as unknown as Parameters<typeof removeCombatants>[0]);
         break;
       case 'create_encounter':
         text = await createEncounter(args as Parameters<typeof createEncounter>[0]);

@@ -47,9 +47,9 @@ const PROMPTS: PromptDef[] = [
           ? '4. Use only existing creatures.'
           : `4. ${custom_creatures === 'yes' ? 'Include' : 'Where no existing creature fits, add'} a custom creature. ` +
             'Prefer base_creature_id with overrides (reskin or re-level a close match); otherwise write a full stat block. ' +
-            'Keep its numbers close to GM Core "Building Creatures" values for its level (compare with find_creature results of the same level), ' +
+            'Set its numbers from creature_benchmarks for its level (mostly moderate, one or two high stats, a low one that fits the concept), ' +
             'use existing spells and items by exact name (check with find_spell, find_item, or advanced_search), ' +
-            'and copy standard abilities such as Reactive Strike with from_creature. Check it with preview_custom_creature and fix any warnings.';
+            'and copy standard abilities such as Reactive Strike with from_creature. Check it with preview_custom_creature: fix warnings and any stat far outside the bands for its level.';
       return [
         `Build a ${difficulty} Pathfinder 2e encounter for ${party_size} level-${party_level} characters` +
           (theme ? ` with the theme "${theme}"` : '') + '.',
@@ -68,6 +68,7 @@ const PROMPTS: PromptDef[] = [
           "In the description, write the setup, terrain, each creature's tactics, and the XP budget (e.g. \"Severe: 120 XP\"). " +
           'If the account cannot create encounters (Patreon tier 1+ is required), use dry_run with export_file to produce an importable JSON file.',
         '7. Summarize for the GM: creatures and roles, XP math, tactics, and any custom stat blocks.',
+        '8. If the GM asks for changes after saving, use add_combatants / remove_combatants and update_encounter instead of recreating the encounter.',
       ].join('\n');
     },
   },
