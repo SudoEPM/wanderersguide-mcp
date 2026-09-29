@@ -24,6 +24,7 @@ import {
   previewCustomCreature,
   addCombatants,
   removeCombatants,
+  repairEncounter,
 } from './tools/encounters.js';
 import { findArchetype, findClassArchetype } from './tools/archetypes.js';
 import { findClass } from './tools/classes.js';
@@ -573,6 +574,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'repair_encounter',
+      description:
+        'Fix an encounter that does not render on the Wanderer\'s Guide website: rebuilds incomplete custom creatures into the complete creature format ' +
+        'and removes trait IDs the site cannot load. Other combatants are left unchanged.',
+      inputSchema: {
+        type: 'object',
+        properties: { encounter_id: { type: 'number', description: 'Encounter ID' } },
+        required: ['encounter_id'],
+      },
+    },
+    {
       name: 'update_encounter',
       description: 'Update metadata on an existing encounter (name, description, party info, icon, color). Use add_combatants / remove_combatants to change creatures.',
       inputSchema: {
@@ -788,6 +800,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
       case 'remove_combatants':
         text = await removeCombatants(args as unknown as Parameters<typeof removeCombatants>[0]);
+        break;
+      case 'repair_encounter':
+        text = await repairEncounter(args as unknown as Parameters<typeof repairEncounter>[0]);
         break;
       case 'create_encounter':
         text = await createEncounter(args as Parameters<typeof createEncounter>[0]);

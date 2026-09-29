@@ -98,6 +98,7 @@ The main use case: ask Claude for something like *"a difficult encounter for 4 l
 | `preview_custom_creature` | — (local, plus lookups) | Build a custom creature without saving and show the stat block Wanderer's Guide will compute |
 | `create_encounter` | `POST /create-encounter` | Create an encounter with database and custom creatures (elite/weak, counts), report XP; optional JSON export or dry run |
 | `add_combatants` | `POST /create-encounter` (with `id`) | Add database or custom creatures (or allies) to an existing encounter; reports the new XP |
+| `repair_encounter` | `POST /create-encounter` (with `id`) | Fix an encounter the website can't render (incomplete custom creatures, unloadable trait IDs) |
 | `remove_combatants` | `POST /create-encounter` (with `id`) | Remove combatants by position or name; reports the new XP |
 | `update_encounter` | `POST /create-encounter` (with `id`) | Update an existing encounter's name, description, party info, or color |
 | `delete_encounter` | `POST /delete-content` (`type: encounter`) | Permanently delete an encounter |

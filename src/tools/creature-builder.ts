@@ -222,7 +222,12 @@ async function resolveRefs(endpoint: string, refs: Ref[] | undefined, kind: stri
   }
   if (idsNeedingNames.length) {
     const rows = await rowsById(endpoint, idsNeedingNames);
-    for (const id of idsNeedingNames) out.push({ id, name: rows.get(id)?.name ?? `#${id}` });
+    for (const id of idsNeedingNames) {
+      const row = rows.get(id);
+      // IDs the API can't return (e.g. trait 2924 on some legacy creatures) make WG log "not found"
+      if (row) out.push({ id, name: row.name });
+      else ctx.warnings.push(`Unknown ${kind} ID ${id} was dropped.`);
+    }
   }
   return out;
 }
@@ -721,8 +726,33 @@ async function buildItem(ref: ItemRef, ctx: Resolver): Promise<InventoryItem | n
   return { id: randomUUID(), item, is_formula: false, is_equipped: false, is_invested: false, is_implanted: false, container_contents: [] };
 }
 
+/** Fill every field WG's ability blocks carry, keeping any provided values. */
+function normalizeAbility(raw: Record<string, unknown>, level: number): Record<string, unknown> {
+  return {
+    id: -1,
+    created_at: '',
+    actions: null,
+    level,
+    rarity: 'COMMON',
+    frequency: null,
+    trigger: null,
+    requirements: null,
+    description: '',
+    special: null,
+    prerequisites: null,
+    type: 'action',
+    traits: [],
+    operations: null,
+    cost: null,
+    access: null,
+    meta_data: null,
+    version: '1.0',
+    ...Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined)),
+  };
+}
+
 async function buildAbility(ab: AbilityInput, level: number, ctx: Resolver): Promise<Record<string, unknown> | null> {
-  if (ab._raw) return ab._raw;
+  if (ab._raw) return normalizeAbility(ab._raw, level);
   if (ab.from_creature !== undefined) {
     const query = typeof ab.from_creature === 'number' || /^d+$/.test(ab.from_creature)
       ? { id: Number(ab.from_creature) }
@@ -1021,6 +1051,39 @@ export async function buildCustomCreature(input: StatBlock | BasedStatBlock): Pr
   // Round-trip through the decompiler so the preview shows what WG will actually compute
   const statBlock = await decompileCreature(result.creature);
   return { ...result, statBlock };
+}
+
+/**
+ * A creature given in WG's raw format may be incomplete (no inventory, spells, or ability fields,
+ * operations without IDs), which the website can fail to render. Rebuild it through the stat block
+ * so it has the same complete shape as every other creature.
+ */
+export async function normalizeRawCreature(raw: Creature): Promise<BuildResult & { statBlock: StatBlock }> {
+  const ops = (raw.operations ?? []).map((op) => ({ ...op, id: op.id ?? randomUUID() }));
+  const warnings: string[] = [];
+  const hasStat = (variable: string) => ops.some((op) => op.data?.variable === variable && op.data?.value !== undefined);
+  if (!hasStat('MAX_HEALTH_BONUS') || !hasStat('AC_BONUS')) {
+    warnings.push('has no HP or AC operations; its stat block will be mostly empty. Pass custom creatures as a stat block (ac, hp, saves, perception, strikes…) instead of raw operations.');
+  }
+  const block = await decompileCreature({ ...raw, operations: ops, _base: undefined } as Creature);
+  block._base = { ...raw, operations: undefined, inventory: undefined, abilities_base: undefined, spells: undefined };
+  const result = await buildCreature(block);
+  const statBlock = await decompileCreature(result.creature);
+  return { creature: result.creature, warnings: [...warnings, ...result.warnings], statBlock };
+}
+
+/** Remove giveTrait operations whose trait the API can't return; returns the dropped IDs. */
+export async function dropUnknownTraits(creature: Creature): Promise<number[]> {
+  const ids = (creature.operations ?? []).filter((op) => op.type === 'giveTrait').map((op) => Number(op.data?.traitId));
+  if (!ids.length) return [];
+  const rows = await rowsById('find-trait', ids);
+  const unknown = ids.filter((id) => !rows.has(id));
+  if (unknown.length) {
+    creature.operations = (creature.operations ?? []).filter(
+      (op) => !(op.type === 'giveTrait' && unknown.includes(Number(op.data?.traitId))),
+    );
+  }
+  return unknown;
 }
 
 export function isStatBlockInput(x: unknown): x is StatBlock | BasedStatBlock {

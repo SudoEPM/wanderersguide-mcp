@@ -14,6 +14,8 @@ import {
 } from '../creature-engine.js';
 import {
   buildCustomCreature,
+  dropUnknownTraits,
+  normalizeRawCreature,
   decompileCreature,
   formatStatBlock,
   isStatBlockInput,
@@ -286,6 +288,8 @@ async function buildCombatants(
         warnings.push(`Creature ID ${id} not found; skipped.`);
         continue;
       }
+      const dropped = await dropUnknownTraits(base as BuilderCreature);
+      if (dropped.length) warnings.push(`${base.name}: removed unknown trait ID(s) ${dropped.join(', ')} (Wanderer's Guide can't load them).`);
       const creature = adjustment ? applyAdjustment(base, adjustment) : base;
       for (let i = 0; i < count; i++) list.push({ _id: randomUUID(), type: 'CREATURE', ally: false, creature });
     }
@@ -308,13 +312,12 @@ async function buildCombatants(
       customBlocks.push(built.statBlock);
       creature = built.creature;
     } else {
-      // Raw WG creature (advanced): pass through with list-entry normalization
+      // Raw WG creature: split multi-entry list values, then rebuild into the complete creature shape
       const raw = custom as Creature;
-      creature = {
-        id: Math.floor(Math.random() * 9_000_000) + 1_000_000,
-        ...raw,
-        operations: normalizeMultiValueOps(raw.operations ?? []),
-      };
+      const normalized = await normalizeRawCreature({ ...raw, operations: normalizeMultiValueOps(raw.operations ?? []) } as BuilderCreature);
+      warnings.push(...normalized.warnings.map((w) => `${raw.name ?? 'Custom creature'}: ${w}`));
+      customBlocks.push(normalized.statBlock);
+      creature = normalized.creature;
     }
     for (let i = 0; i < count; i++) list.push({ _id: randomUUID(), type: 'CREATURE', ally: false, creature });
   }
@@ -376,6 +379,41 @@ export async function removeCombatants(args: {
   });
   if (!removed.length) return 'No combatants matched; use find_encounter to see positions and names.';
   return saveCombatants(encounter, list, [`Removed from "${encounter.name}" (ID: ${encounter.id}):`, ...removed.map((r) => `- ${r}`)]);
+}
+
+const REQUIRED_CREATURE_FIELDS = ['operations', 'inventory', 'spells', 'abilities_base', 'details'];
+
+/**
+ * Fix creatures that can stop an encounter from rendering on the website: incomplete raw creatures
+ * (missing inventory/spells/ability fields, operations without IDs) and trait IDs WG can't load.
+ */
+export async function repairEncounter(args: { encounter_id: number }): Promise<string> {
+  const encounter = await fetchEncounter(args.encounter_id);
+  const list = encounter.combatants?.list ?? [];
+  const notes: string[] = [];
+  const repaired: CombatantEntry[] = [];
+  for (const [i, c] of list.entries()) {
+    if (c.type !== 'CREATURE' || !c.creature) {
+      repaired.push(c);
+      continue;
+    }
+    let creature = structuredClone(c.creature) as BuilderCreature;
+    const label = `${i + 1}. ${creature.name}`;
+    const incomplete =
+      REQUIRED_CREATURE_FIELDS.some((k) => !(k in creature)) ||
+      (creature.operations ?? []).some((op) => !op.id) ||
+      (creature.abilities_base ?? []).some((a) => a.type === undefined || !Array.isArray(a.traits));
+    if (incomplete) {
+      const normalized = await normalizeRawCreature(creature);
+      creature = normalized.creature;
+      notes.push(`${label}: rebuilt into the complete creature format${normalized.warnings.length ? ` (${normalized.warnings.join(' ')})` : ''}.`);
+    }
+    const dropped = await dropUnknownTraits(creature);
+    if (dropped.length) notes.push(`${label}: removed unknown trait ID(s) ${dropped.join(', ')}.`);
+    repaired.push({ ...c, creature });
+  }
+  if (!notes.length) return `Encounter "${encounter.name}" (ID: ${encounter.id}): nothing to repair.`;
+  return saveCombatants(encounter, repaired, [`Repaired "${encounter.name}" (ID: ${encounter.id}):`, ...notes.map((n) => `- ${n}`)]);
 }
 
 // ── create / update / delete ──────────────────────────────────────────────────
