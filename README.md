@@ -65,7 +65,8 @@ The server starts without a key so clients can list its tools, prompts, and reso
 
 | Tool | API endpoint(s) | Description |
 |---|---|---|
-| `search_content` | `POST /search-data` | Full-text search across all PF2e content |
+| `search_content` | `POST /search-data` | Full-text keyword search across all PF2e content |
+| `advanced_search` | `POST /search-data` (`is_advanced`) | Filter one content type by level/rank range, traits, rarity, tradition, action cost, item group, size, or partial name; official sources only unless `include_homebrew` is set; paged with `limit`/`offset` |
 | `find_spell` | `POST /find-spell` | Look up spells by name, ID, trait IDs, or content source |
 | `find_feat` | `POST /find-ability-block` | Look up feats, actions, class features, heritages by name, ID, type, traits, or prerequisites |
 | `find_item` | `POST /find-item` | Look up equipment, weapons, and treasure by name or ID |
@@ -88,6 +89,8 @@ The server starts without a key so clients can list its tools, prompts, and reso
 | `delete_encounter` | `POST /delete-content` (`type: encounter`) | Permanently delete an encounter |
 
 > **Note on encounter update/delete:** The API does not expose `/update-encounter` or `/delete-encounter` as standalone endpoints. Updates use the same `/create-encounter` upsert pattern (pass `id` to update), and deletion uses the generic `/delete-content` endpoint with `type: 'encounter'`.
+
+> `find_*` name lookups are exact matches (case-insensitive). On a miss, the tool suggests similar names using advanced search. `find_ancestry` and `find_background` filter by name on the MCP side because the API ignores their `name` filter.
 
 > `find-trait` is also called internally to resolve trait IDs to names in spell and item results.
 

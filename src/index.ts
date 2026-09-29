@@ -6,7 +6,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import { searchContent } from './tools/search.js';
+import { searchContent, advancedSearch, ADVANCED_SEARCH_TYPES } from './tools/search.js';
 import { findSpell } from './tools/spells.js';
 import { findFeat } from './tools/feats.js';
 import { findItem } from './tools/items.js';
@@ -45,7 +45,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: 'search_content',
       description:
-        "Full-text search across all Pathfinder 2e content (spells, feats, items, creatures, etc.). Use this as the first tool when you don't know the exact type of what you're looking for.",
+        "Full-text keyword search across all Pathfinder 2e content (spells, feats, items, creatures, etc.). Matches whole words, not prefixes, and returns at most 20 hits per content type. Use this when you don't know the exact type of what you're looking for; use advanced_search to filter by level, rank, traits, rarity, and other properties.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -61,13 +61,65 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'advanced_search',
+      description:
+        'Filter Pathfinder 2e content of one type by properties: level or rank range, traits, rarity, spell tradition, action cost, item group, size, and partial name or description text. ' +
+        'Use for questions like "rank 3 arcane fire spells", "level 5 rare creatures", or "level 1 reaction feats". ' +
+        'Searches official published sources only unless include_homebrew is true. Results are sorted by level/rank then name and paged with limit/offset.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          type: { type: 'string', enum: ADVANCED_SEARCH_TYPES, description: 'Content type to search' },
+          name: { type: 'string', description: 'Substring of the name (case-insensitive)' },
+          description: { type: 'string', description: 'Text that must appear in the description' },
+          rarity: { type: 'string', enum: ['COMMON', 'UNCOMMON', 'RARE', 'UNIQUE'] },
+          traits: {
+            type: 'array',
+            items: { oneOf: [{ type: 'string' }, { type: 'number' }] },
+            description: 'Trait names (e.g. "Fire", "Undead") or trait IDs; results must have all of them',
+          },
+          level_min: { type: 'number', description: 'Minimum level (feats, items, creatures)' },
+          level_max: { type: 'number', description: 'Maximum level (feats, items, creatures)' },
+          rank_min: { type: 'number', description: 'Minimum spell rank (0 = cantrip)' },
+          rank_max: { type: 'number', description: 'Maximum spell rank' },
+          traditions: {
+            type: 'array',
+            items: { type: 'string', enum: ['arcane', 'divine', 'occult', 'primal'] },
+            description: 'Spell traditions',
+          },
+          spell_type: { type: 'string', enum: ['NORMAL', 'FOCUS', 'RITUAL'], description: 'Spell category' },
+          actions: {
+            type: 'string',
+            enum: ['ONE-ACTION', 'TWO-ACTIONS', 'THREE-ACTIONS', 'REACTION', 'FREE-ACTION', 'ONE-TO-TWO-ACTIONS', 'ONE-TO-THREE-ACTIONS', 'TWO-TO-THREE-ACTIONS'],
+            description: 'Action cost (feats and actions)',
+          },
+          feat_type: {
+            type: 'string',
+            enum: ['feat', 'action', 'class-feature', 'heritage', 'sense', 'physical-feature', 'mode'],
+            description: 'Ability block kind when type is "feat" (default "feat")',
+          },
+          item_group: {
+            type: 'string',
+            enum: ['GENERAL', 'WEAPON', 'ARMOR', 'SHIELD', 'RUNE', 'UPGRADE', 'MATERIAL'],
+            description: 'Item group',
+          },
+          size: { type: 'string', enum: ['TINY', 'SMALL', 'MEDIUM', 'LARGE', 'HUGE', 'GARGANTUAN'] },
+          include_homebrew: { type: 'boolean', description: 'Also search homebrew and unpublished sources (default false)' },
+          content_sources: { type: 'array', items: { type: 'number' }, description: 'Restrict to these content source IDs (overrides include_homebrew)' },
+          limit: { type: 'number', description: 'Results per page (default 25)' },
+          offset: { type: 'number', description: 'Results to skip, for paging (default 0)' },
+        },
+        required: ['type'],
+      },
+    },
+    {
       name: 'find_spell',
       description:
         'Look up one or more Pathfinder 2e spells by name or ID. Returns full spell details including casting time, range, targets, duration, and description.',
       inputSchema: {
         type: 'object',
         properties: {
-          name: { type: 'string', description: 'Partial or full spell name' },
+          name: { type: 'string', description: 'Exact spell name (case-insensitive). On a miss, similar names are suggested; use advanced_search for partial matches.' },
           id: {
             oneOf: [{ type: 'number' }, { type: 'array', items: { type: 'number' } }],
             description: 'Spell ID or array of IDs',
@@ -92,7 +144,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object',
         properties: {
-          name: { type: 'string', description: 'Partial or full feat name' },
+          name: { type: 'string', description: 'Exact feat name (case-insensitive). On a miss, similar names are suggested; use advanced_search for partial matches.' },
           id: {
             oneOf: [{ type: 'number' }, { type: 'array', items: { type: 'number' } }],
             description: 'Ability block ID or array of IDs',
@@ -127,7 +179,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object',
         properties: {
-          name: { type: 'string', description: 'Partial or full item name' },
+          name: { type: 'string', description: 'Exact item name (case-insensitive). On a miss, similar names are suggested; use advanced_search for partial matches.' },
           id: {
             oneOf: [{ type: 'number' }, { type: 'array', items: { type: 'number' } }],
             description: 'Item ID or array of IDs',
@@ -147,7 +199,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object',
         properties: {
-          name: { type: 'string', description: 'Partial or full creature name' },
+          name: { type: 'string', description: 'Exact creature name (case-insensitive). On a miss, similar names are suggested; use advanced_search for partial matches.' },
           id: {
             oneOf: [{ type: 'number' }, { type: 'array', items: { type: 'number' } }],
             description: 'Creature ID or array of IDs',
@@ -166,7 +218,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object',
         properties: {
-          name: { type: 'string', description: 'Partial or full ancestry name' },
+          name: { type: 'string', description: 'Full or partial ancestry name (case-insensitive)' },
           id: {
             oneOf: [{ type: 'number' }, { type: 'array', items: { type: 'number' } }],
             description: 'Ancestry ID or array of IDs',
@@ -185,7 +237,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object',
         properties: {
-          name: { type: 'string', description: 'Partial or full background name' },
+          name: { type: 'string', description: 'Full or partial background name (case-insensitive)' },
           id: {
             oneOf: [{ type: 'number' }, { type: 'array', items: { type: 'number' } }],
             description: 'Background ID or array of IDs',
@@ -408,7 +460,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object',
         properties: {
-          name: { type: 'string', description: 'Partial or full language name' },
+          name: { type: 'string', description: 'Exact language name (case-insensitive). On a miss, similar names are suggested; use advanced_search for partial matches.' },
           id: {
             oneOf: [{ type: 'number' }, { type: 'array', items: { type: 'number' } }],
             description: 'Language ID or array of IDs',
@@ -423,7 +475,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object',
         properties: {
-          name: { type: 'string', description: 'Partial or full trait name' },
+          name: { type: 'string', description: 'Exact trait name (case-insensitive). On a miss, similar names are suggested; use advanced_search for partial matches.' },
           id: {
             oneOf: [{ type: 'number' }, { type: 'array', items: { type: 'number' } }],
             description: 'Trait ID or array of IDs',
@@ -500,6 +552,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     switch (name) {
       case 'search_content':
         text = await searchContent(args as Parameters<typeof searchContent>[0]);
+        break;
+      case 'advanced_search':
+        text = await advancedSearch(args as unknown as Parameters<typeof advancedSearch>[0]);
         break;
       case 'find_spell':
         text = await findSpell(args as Parameters<typeof findSpell>[0]);

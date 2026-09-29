@@ -1,4 +1,5 @@
-import { wgFetch } from '../client.js';
+import { wgFetch, toArray } from '../client.js';
+import { suggestByName } from './search.js';
 
 interface Trait {
   id: number;
@@ -88,11 +89,11 @@ export async function findItem(args: {
   if (args.id !== undefined) body.id = Array.isArray(args.id) ? args.id : [args.id];
   if (args.content_sources?.length) body.content_sources = args.content_sources;
 
-  const results = await wgFetch<Item[]>('find-item', body);
+  const results = toArray(await wgFetch<Item | Item[]>('find-item', body));
 
-  if (!results || results.length === 0) {
+  if (results.length === 0) {
     const term = args.name ?? String(args.id) ?? 'given criteria';
-    return `No items found matching "${term}".`;
+    return `No items found matching "${term}".` + (args.name ? await suggestByName('item', args.name) : '');
   }
 
   await resolveTraits(results);

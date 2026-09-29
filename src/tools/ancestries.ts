@@ -1,4 +1,4 @@
-import { wgFetch } from '../client.js';
+import { wgFetch, toArray, filterByName } from '../client.js';
 
 interface Operation {
   type: string;
@@ -96,9 +96,11 @@ export async function findAncestry(args: {
   if (args.id !== undefined) body.id = Array.isArray(args.id) ? args.id : [args.id];
   if (args.content_sources?.length) body.content_sources = args.content_sources;
 
-  const results = await wgFetch<Ancestry[]>('find-ancestry', body);
+  let results = toArray(await wgFetch<Ancestry | Ancestry[]>('find-ancestry', body));
+  // find-ancestry ignores the name filter and returns every row
+  if (args.name) results = filterByName(results, args.name);
 
-  if (!results || results.length === 0) {
+  if (results.length === 0) {
     const term = args.name ?? String(args.id) ?? 'given criteria';
     return `No ancestries found matching "${term}".`;
   }

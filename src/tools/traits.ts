@@ -1,4 +1,5 @@
-import { wgFetch } from '../client.js';
+import { wgFetch, toArray } from '../client.js';
+import { suggestByName } from './search.js';
 
 interface TraitMetaData {
   important?: boolean;
@@ -44,11 +45,11 @@ export async function findTrait(args: {
   if (args.id !== undefined) body.id = Array.isArray(args.id) ? args.id : [args.id];
   if (args.content_sources?.length) body.content_sources = args.content_sources;
 
-  const results = await wgFetch<Trait[]>('find-trait', body);
+  const results = toArray(await wgFetch<Trait | Trait[]>('find-trait', body));
 
-  if (!results || results.length === 0) {
+  if (results.length === 0) {
     const term = args.name ?? (args.id !== undefined ? String(args.id) : null) ?? 'given criteria';
-    return `No traits found matching "${term}".`;
+    return `No traits found matching "${term}".` + (args.name ? await suggestByName('trait', args.name) : '');
   }
 
   return results.map(formatTrait).join('\n\n---\n\n');

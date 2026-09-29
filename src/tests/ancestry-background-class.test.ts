@@ -27,6 +27,12 @@ describe('find_ancestry', () => {
     assertNoObjectObject(result, 'find_ancestry(Elf)');
   });
 
+  test('returns only the named ancestry (API ignores the name filter)', { timeout: TIMEOUT }, async () => {
+    const result = await findAncestry({ name: 'Elf' });
+    assert.doesNotMatch(result, /\*\*Dwarf\*\*/);
+    assert.ok(result.length < 20_000, `expected one ancestry, got ${result.length} chars`);
+  });
+
   test('does not show phantom fields (hp/size as top-level props)', { timeout: TIMEOUT }, async () => {
     const result = await findAncestry({ name: 'Gnome' });
     assertIsString(result, 'find_ancestry(Gnome) phantom check');
@@ -48,6 +54,12 @@ describe('find_background', () => {
     assertIsString(result, 'find_background(Scholar)');
     assert.match(result, /Scholar/i);
     assertNoObjectObject(result, 'find_background(Scholar)');
+  });
+
+  test('matches a partial name and excludes other backgrounds', { timeout: TIMEOUT }, async () => {
+    const result = await findBackground({ name: 'acoly' });
+    assert.match(result, /\*\*Acolyte\*\*/);
+    assert.doesNotMatch(result, /\*\*Scholar\*\*/);
   });
 });
 

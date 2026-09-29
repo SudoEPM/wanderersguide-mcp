@@ -6,7 +6,11 @@ import { findContentSource } from '../tools/content-sources.js';
 import { TIMEOUT, assertIsString, assertNoObjectObject } from './helpers.js';
 
 describe('find_trait', () => {
-  // find-trait requires an array of IDs — single ID or name search returns nothing (API quirk)
+  test('finds a trait by exact name (API returns a single object)', { timeout: TIMEOUT }, async () => {
+    const result = await findTrait({ name: 'fire' });
+    assert.match(result, /^\*\*Fire\*\*/);
+  });
+
   test('resolves trait IDs to names with categories', { timeout: TIMEOUT }, async () => {
     const result = await findTrait({ id: [1476, 1569] }); // Poison, Agile
     assertIsString(result, 'find_trait(array)');

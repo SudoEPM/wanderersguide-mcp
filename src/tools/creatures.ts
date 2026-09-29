@@ -1,4 +1,5 @@
-import { wgFetch } from '../client.js';
+import { wgFetch, toArray } from '../client.js';
+import { suggestByName } from './search.js';
 
 interface Trait {
   id: number;
@@ -237,12 +238,11 @@ export async function findCreature(args: {
   if (args.id !== undefined) body.id = args.id;
   if (args.content_sources?.length) body.content_sources = args.content_sources;
 
-  const raw = await wgFetch<Creature | Creature[]>('find-creature', body);
-  const results: Creature[] = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  const results = toArray(await wgFetch<Creature | Creature[]>('find-creature', body));
 
   if (results.length === 0) {
     const term = args.name ?? (args.id !== undefined ? String(args.id) : null) ?? 'given criteria';
-    return `No creatures found matching "${term}".`;
+    return `No creatures found matching "${term}".` + (args.name ? await suggestByName('creature', args.name) : '');
   }
 
   // Collect all trait IDs for batch resolution

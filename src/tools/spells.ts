@@ -1,4 +1,5 @@
-import { wgFetch } from '../client.js';
+import { wgFetch, toArray } from '../client.js';
+import { suggestByName } from './search.js';
 
 interface Trait {
   id: number;
@@ -92,12 +93,11 @@ export async function findSpell(args: {
   if (args.traits?.length) body.traits = args.traits;
   if (args.content_sources?.length) body.content_sources = args.content_sources;
 
-  const raw = await wgFetch<Spell | Spell[]>('find-spell', body);
-  const results: Spell[] = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  const results = toArray(await wgFetch<Spell | Spell[]>('find-spell', body));
 
   if (results.length === 0) {
     const term = args.name ?? (args.id !== undefined ? String(args.id) : null) ?? 'given criteria';
-    return `No spells found matching "${term}".`;
+    return `No spells found matching "${term}".` + (args.name ? await suggestByName('spell', args.name) : '');
   }
 
   await resolveTraits(results);

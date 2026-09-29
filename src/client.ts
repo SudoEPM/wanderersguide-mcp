@@ -66,3 +66,20 @@ export async function wgFetch<T = unknown>(
   // status === 'error'
   throw new WGError(`API error from ${functionName}: ${json.message ?? 'unknown error'}`);
 }
+
+/** find-* endpoints return a bare object (or null) for a scalar id or exact name match. */
+export function toArray<T>(raw: T | T[] | null | undefined): T[] {
+  if (Array.isArray(raw)) return raw;
+  return raw ? [raw] : [];
+}
+
+/**
+ * Some endpoints (find-ancestry, find-background) ignore the name filter and return
+ * every row, so filter client-side: exact (case-insensitive) matches first, else substring.
+ */
+export function filterByName<T extends { name?: string }>(rows: T[], name: string): T[] {
+  const needle = name.trim().toLowerCase();
+  const exact = rows.filter((r) => r.name?.toLowerCase() === needle);
+  if (exact.length) return exact;
+  return rows.filter((r) => r.name?.toLowerCase().includes(needle));
+}

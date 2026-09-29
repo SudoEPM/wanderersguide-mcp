@@ -1,4 +1,5 @@
-import { wgFetch } from '../client.js';
+import { wgFetch, toArray } from '../client.js';
+import { suggestByName } from './search.js';
 
 interface Language {
   id?: number;
@@ -28,11 +29,11 @@ export async function findLanguage(args: {
   if (args.id !== undefined) body.id = Array.isArray(args.id) ? args.id : [args.id];
   if (args.content_sources?.length) body.content_sources = args.content_sources;
 
-  const results = await wgFetch<Language[]>('find-language', body);
+  const results = toArray(await wgFetch<Language | Language[]>('find-language', body));
 
-  if (!results || results.length === 0) {
+  if (results.length === 0) {
     const term = args.name ?? (args.id !== undefined ? String(args.id) : null) ?? 'given criteria';
-    return `No languages found matching "${term}".`;
+    return `No languages found matching "${term}".` + (args.name ? await suggestByName('language', args.name) : '');
   }
 
   return results.map(formatLanguage).join('\n\n---\n\n');

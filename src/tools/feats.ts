@@ -1,4 +1,5 @@
-import { wgFetch } from '../client.js';
+import { wgFetch, toArray } from '../client.js';
+import { suggestByName } from './search.js';
 
 type ActionCost = 'ONE-ACTION' | 'TWO-ACTIONS' | 'THREE-ACTIONS' | 'REACTION' | 'FREE-ACTION';
 
@@ -93,11 +94,11 @@ export async function findFeat(args: {
   if (args.prerequisites?.length) body.prerequisites = args.prerequisites;
   if (args.content_sources?.length) body.content_sources = args.content_sources;
 
-  const results = await wgFetch<AbilityBlock[]>('find-ability-block', body);
+  const results = toArray(await wgFetch<AbilityBlock | AbilityBlock[]>('find-ability-block', body));
 
-  if (!results || results.length === 0) {
+  if (results.length === 0) {
     const term = args.name ?? String(args.id) ?? 'given criteria';
-    return `No feats or abilities found matching "${term}".`;
+    return `No feats or abilities found matching "${term}".` + (args.name ? await suggestByName('feat', args.name) : '');
   }
 
   await resolveTraits(results);

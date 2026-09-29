@@ -4,6 +4,12 @@ import { findSpell } from '../tools/spells.js';
 import { TIMEOUT, NO_MATCH, assertIsString, assertNoObjectObject, assertTraitsAreNames } from './helpers.js';
 
 describe('find_spell', () => {
+  test('suggests similar names when an exact name misses', { timeout: TIMEOUT }, async () => {
+    const result = await findSpell({ name: 'Fireb' });
+    assert.match(result, /No spells found/);
+    assert.match(result, /Did you mean: .*Fireball \(ID: \d+\)/);
+  });
+
   test('finds Fireball by name with area and defense', { timeout: TIMEOUT }, async () => {
     const result = await findSpell({ name: 'Fireball' });
     assertIsString(result, 'find_spell(Fireball)');
