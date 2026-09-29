@@ -69,7 +69,7 @@ export async function findContentSource(args: {
   published?: boolean;
 }): Promise<string> {
   const body: Record<string, unknown> = {};
-  if (args.id !== undefined) body.id = args.id;
+  if (args.id !== undefined) body.id = Array.isArray(args.id) ? args.id : [args.id];
   if (args.foundry_id) body.foundry_id = args.foundry_id;
   if (args.group) body.group = args.group;
   // API uses is_published for the published filter

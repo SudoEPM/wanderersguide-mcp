@@ -58,7 +58,7 @@ export async function findEncounter(args: {
   campaign_id?: number;
 }): Promise<string> {
   const body: Record<string, unknown> = {};
-  if (args.id !== undefined) body.id = args.id;
+  if (args.id !== undefined) body.id = Array.isArray(args.id) ? args.id : [args.id];
   const campaignId = args.campaign_id ?? (args.id === undefined && process.env.WG_CAMPAIGN_ID ? Number(process.env.WG_CAMPAIGN_ID) : undefined);
   if (campaignId !== undefined) body.campaign_id = campaignId;
 

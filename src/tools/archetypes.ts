@@ -46,7 +46,7 @@ export async function findArchetype(args: {
   dedication_feat_id?: number;
 }): Promise<string> {
   const body: Record<string, unknown> = {};
-  if (args.id !== undefined) body.id = args.id;
+  if (args.id !== undefined) body.id = Array.isArray(args.id) ? args.id : [args.id];
   if (args.content_sources?.length) body.content_sources = args.content_sources;
   if (args.dedication_feat_id !== undefined) body.dedication_feat_id = args.dedication_feat_id;
 
@@ -65,7 +65,7 @@ export async function findClassArchetype(args: {
   class_id?: number;
 }): Promise<string> {
   const body: Record<string, unknown> = {};
-  if (args.id !== undefined) body.id = args.id;
+  if (args.id !== undefined) body.id = Array.isArray(args.id) ? args.id : [args.id];
   if (args.content_sources?.length) body.content_sources = args.content_sources;
   if (args.class_id !== undefined) body.class_id = args.class_id;
 

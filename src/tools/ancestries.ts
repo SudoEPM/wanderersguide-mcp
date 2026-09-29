@@ -93,7 +93,7 @@ export async function findAncestry(args: {
 }): Promise<string> {
   const body: Record<string, unknown> = {};
   if (args.name) body.name = args.name;
-  if (args.id !== undefined) body.id = args.id;
+  if (args.id !== undefined) body.id = Array.isArray(args.id) ? args.id : [args.id];
   if (args.content_sources?.length) body.content_sources = args.content_sources;
 
   const results = await wgFetch<Ancestry[]>('find-ancestry', body);

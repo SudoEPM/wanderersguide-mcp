@@ -11,6 +11,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { wgFetch } from '../client.js';
+import { getCurrentUserId } from '../tools/campaigns.js';
 
 const TIMEOUT = 15_000;
 
@@ -184,7 +185,8 @@ describe('contract: Trait', () => {
 
 describe('contract: Campaign', () => {
   test('find-campaign response matches OpenAPI schema', { timeout: TIMEOUT }, async () => {
-    const results = await wgFetch<Record<string, unknown>[]>('find-campaign', {});
+    // An unfiltered find-campaign returns [], so filter by the caller's user_id
+    const results = await wgFetch<Record<string, unknown>[]>('find-campaign', { user_id: await getCurrentUserId() });
     assert.ok(results?.length > 0, 'expected Campaign results');
     const c = results[0];
     assertField(c, 'id', 'number', 'Campaign');

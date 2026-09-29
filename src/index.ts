@@ -216,7 +216,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'find_campaign',
-      description: "Retrieve campaigns you own or are a member of.",
+      description: "Retrieve campaigns by ID, owner UUID, or join key. With no filters, returns the campaigns you own.",
       inputSchema: {
         type: 'object',
         properties: {

@@ -1,6 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { findItem } from '../tools/items.js';
+import { wgFetch } from '../client.js';
 import { TIMEOUT, NO_MATCH, assertIsString, assertNoObjectObject, assertTraitsAreNames } from './helpers.js';
 
 describe('find_item', () => {
@@ -10,6 +11,13 @@ describe('find_item', () => {
     assert.match(result, /Longsword/i);
     assertTraitsAreNames(result, 'find_item(Longsword)');
     assertNoObjectObject(result, 'find_item(Longsword)');
+  });
+
+  test('accepts a single numeric ID', { timeout: TIMEOUT }, async () => {
+    // find-* endpoints return a bare object (not an array) for a scalar id
+    const [longsword] = await wgFetch<{ id: number }[]>('find-item', { name: 'Longsword' });
+    const result = await findItem({ id: longsword.id });
+    assert.match(result, /Longsword/i);
   });
 
   test('shows group and bulk', { timeout: TIMEOUT }, async () => {

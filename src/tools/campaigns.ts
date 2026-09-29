@@ -19,15 +19,28 @@ function formatCampaign(c: Campaign): string {
   return lines.join('\n');
 }
 
+let currentUserId: string | undefined;
+
+export async function getCurrentUserId(): Promise<string> {
+  if (!currentUserId) {
+    const user = await wgFetch<{ user_id: string }>('get-user', {});
+    currentUserId = user.user_id;
+  }
+  return currentUserId;
+}
+
 export async function findCampaign(args: {
   id?: number | number[];
   user_id?: string;
   join_key?: string;
 }): Promise<string> {
   const body: Record<string, unknown> = {};
-  if (args.id !== undefined) body.id = args.id;
+  if (args.id !== undefined) body.id = Array.isArray(args.id) ? args.id : [args.id];
   if (args.user_id) body.user_id = args.user_id;
   if (args.join_key) body.join_key = args.join_key;
+
+  // An unfiltered find-campaign now returns [], so default to the caller's own campaigns
+  if (Object.keys(body).length === 0) body.user_id = await getCurrentUserId();
 
   const results = await wgFetch<Campaign[]>('find-campaign', body);
 

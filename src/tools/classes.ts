@@ -63,7 +63,7 @@ export async function findClass(args: {
   content_sources?: number[];
 }): Promise<string> {
   const body: Record<string, unknown> = {};
-  if (args.id !== undefined) body.id = args.id;
+  if (args.id !== undefined) body.id = Array.isArray(args.id) ? args.id : [args.id];
   if (args.content_sources?.length) body.content_sources = args.content_sources;
 
   const results = await wgFetch<Class[]>('find-class', body);

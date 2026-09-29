@@ -87,7 +87,7 @@ export async function findFeat(args: {
 }): Promise<string> {
   const body: Record<string, unknown> = {};
   if (args.name) body.name = args.name;
-  if (args.id !== undefined) body.id = args.id;
+  if (args.id !== undefined) body.id = Array.isArray(args.id) ? args.id : [args.id];
   if (args.type) body.type = args.type;
   if (args.traits?.length) body.traits = args.traits;
   if (args.prerequisites?.length) body.prerequisites = args.prerequisites;
