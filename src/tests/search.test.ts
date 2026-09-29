@@ -45,6 +45,16 @@ describe('advanced_search', () => {
     assert.ok(count(any) > count(all), 'traits_any should match more creatures than traits');
   });
 
+  test('traits_none excludes creatures with any of those traits', { timeout: TIMEOUT }, async () => {
+    const withHumans = await advancedSearch({ type: 'creature', level_min: 2, level_max: 2, traits: ['Humanoid'], limit: 200 });
+    const noHumans = await advancedSearch({ type: 'creature', level_min: 2, level_max: 2, traits: ['Humanoid'], traits_none: ['Human'], limit: 200 });
+    const hasHuman = /\[[^\]]*\bHuman\b[^\]]*\]/;
+    assert.ok(withHumans.split('\n').some((l) => hasHuman.test(l)), 'level-2 humanoids should include humans (e.g. Bandit)');
+    const results = noHumans.split('\n').filter((l) => /\(ID: \d+\)$/.test(l));
+    assert.ok(results.length > 0);
+    for (const line of results) assert.doesNotMatch(line, hasHuman);
+  });
+
   test('pages results with limit and offset', { timeout: TIMEOUT }, async () => {
     const result = await advancedSearch({ type: 'feat', level_max: 1, actions: 'REACTION', limit: 3, offset: 3 });
     assert.match(result, /showing 4–6 \(use offset 6 for more\)/);

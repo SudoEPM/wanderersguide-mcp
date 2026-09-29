@@ -39,6 +39,12 @@ describe('find_creature', () => {
     assert.match(result, /◆/); // Harpy has TWO-ACTIONS: Hungry Winds
   });
 
+  test('shows the database ID of every creature in a batch lookup', { timeout: TIMEOUT }, async () => {
+    const result = await findCreature({ id: [11998, 12052] });
+    assert.match(result, /^\*\*Bandit\*\* .*\(ID: 11998\)$/m);
+    assert.match(result, /^\*\*Ruffian\*\* .*\(ID: 12052\)$/m);
+  });
+
   test('finds creature by exact name', { timeout: TIMEOUT }, async () => {
     const result = await findCreature({ name: 'Goblin Warrior' });
     assertIsString(result, 'find_creature(Goblin Warrior)');

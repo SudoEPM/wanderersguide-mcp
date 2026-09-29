@@ -166,6 +166,7 @@ export interface AdvancedSearchArgs {
   rarity?: string;
   traits?: (string | number)[];
   traits_any?: (string | number)[];
+  traits_none?: (string | number)[];
   level_min?: number;
   level_max?: number;
   rank_min?: number;
@@ -192,6 +193,7 @@ export async function runAdvancedSearch(args: AdvancedSearchArgs): Promise<Advan
   if (args.rarity) body.rarity = args.rarity.toUpperCase();
   const traitIds = args.traits?.length ? await resolveTraitIds(args.traits) : [];
   const anyTraitIds = args.traits_any?.length ? await resolveTraitIds(args.traits_any) : [];
+  const noneTraitIds = args.traits_none?.length ? await resolveTraitIds(args.traits_none) : [];
   // Creature search ignores the traits filter; creatures are filtered client-side below
   if (traitIds.length && spec.apiType !== 'creature') body.traits = traitIds;
   for (const key of ['level_min', 'level_max', 'rank_min', 'rank_max'] as const) {
@@ -218,6 +220,9 @@ export async function runAdvancedSearch(args: AdvancedSearchArgs): Promise<Advan
   }
   if (anyTraitIds.length) {
     rows = rows.filter((r) => traitIdsOf(r).some((id) => anyTraitIds.includes(id)));
+  }
+  if (noneTraitIds.length) {
+    rows = rows.filter((r) => !traitIdsOf(r).some((id) => noneTraitIds.includes(id)));
   }
 
   // Companion stat blocks (eidolons, dragonets) use level -100 as a "no level" sentinel; sort them last

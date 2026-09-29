@@ -16,6 +16,7 @@ import {
   buildCustomCreature,
   dropUnknownTraits,
   normalizeRawCreature,
+  unknownTraitsNote,
   decompileCreature,
   formatStatBlock,
   isStatBlockInput,
@@ -55,6 +56,8 @@ interface XpEntry {
   name: string;
   level: number;
   ally: boolean;
+  /** Present in the encounter but not fighting (a social NPC): listed, but excluded from the combat XP. */
+  nonCombatant?: boolean;
 }
 
 /** XP breakdown and difficulty for an encounter, per GM Core's Building Encounters rules. */
@@ -64,7 +67,7 @@ export function xpReport(entries: XpEntry[], partyLevel?: number, partySize = 4)
   const enemies = entries.filter((e) => !e.ally);
   const groups = new Map<string, { entry: XpEntry; count: number }>();
   for (const e of enemies) {
-    const key = `${e.name}|${e.level}`;
+    const key = `${e.name}|${e.level}|${!!e.nonCombatant}`;
     const g = groups.get(key);
     if (g) g.count++;
     else groups.set(key, { entry: e, count: 1 });
@@ -72,36 +75,55 @@ export function xpReport(entries: XpEntry[], partyLevel?: number, partySize = 4)
 
   const lines: string[] = [];
   const warnings: string[] = [];
-  let total = 0;
+  let combatXp = 0;
+  let nonCombatXp = 0;
   for (const { entry, count } of groups.values()) {
     const level = entry.level === NO_LEVEL ? partyLevel : entry.level;
+    const label = `${entry.name}${count > 1 ? ` ×${count}` : ''}${entry.nonCombatant ? ' [non-combatant]' : ''}`;
     const xp = creatureXp(level, partyLevel);
     if (xp === null) {
-      warnings.push(`${entry.name} (level ${level}) is more than 4 levels above the party: off the XP table and likely to cause a TPK.`);
-      lines.push(`- ${entry.name}${count > 1 ? ` ×${count}` : ''} — level ${level}: off the XP table`);
+      if (!entry.nonCombatant) warnings.push(`${entry.name} (level ${level}) is more than 4 levels above the party: off the XP table and likely to cause a TPK.`);
+      lines.push(`- ${label} — level ${level}: off the XP table`);
       continue;
     }
-    total += xp * count;
+    if (entry.nonCombatant) nonCombatXp += xp * count;
+    else combatXp += xp * count;
     const diff = level - partyLevel;
-    lines.push(`- ${entry.name}${count > 1 ? ` ×${count}` : ''} — level ${level} (party ${diff >= 0 ? '+' : ''}${diff}): ${xp} XP${count > 1 ? ` each, ${xp * count} total` : ''}`);
+    // The GM Core table stops at party level −4; weaker creatures are worth no XP
+    const belowTable = diff < -4 ? ' (more than 4 levels below the party: not worth XP)' : '';
+    lines.push(`- ${label} — level ${level} (party ${diff >= 0 ? '+' : ''}${diff}): ${xp} XP${count > 1 ? ` each, ${xp * count} total` : ''}${belowTable}`);
   }
 
   const budgets = encounterBudgets(partySize).map((b) => `${b.label} ${b.xp}`).join(' | ');
   const allies = entries.filter((e) => e.ally).length;
+  const nonCombatants = enemies.filter((e) => e.nonCombatant).length;
+  const totals = nonCombatants
+    ? [
+      `Combat XP: ${combatXp} XP → **${difficultyFor(combatXp, partySize)}**`,
+      `Total including ${nonCombatants} non-combatant(s): ${combatXp + nonCombatXp} XP (non-combatants don't count toward difficulty)`,
+    ]
+    : [`Total: ${combatXp} XP → **${difficultyFor(combatXp, partySize)}**`];
   return [
     `XP for ${partySize} level-${partyLevel} characters:`,
     ...lines,
-    `Total: ${total} XP → **${difficultyFor(total, partySize)}**`,
+    ...totals,
     `Budgets: ${budgets}`,
     ...(allies ? [`(${allies} allied combatant(s) not counted)`] : []),
     ...warnings.map((w) => `⚠ ${w}`),
   ].join('\n');
 }
 
+type CombatantCreature = { name?: string; level?: number; details?: { non_combatant?: boolean } } | undefined;
+
 function xpEntryOf(c: CombatantEntry): XpEntry | null {
   if (c.type !== 'CREATURE') return null;
-  const cr = c.creature as { name?: string; level?: number } | undefined;
-  return { name: cr?.name ?? 'Unknown', level: cr?.level ?? 0, ally: c.ally };
+  const cr = c.creature as CombatantCreature;
+  return { name: cr?.name ?? 'Unknown', level: cr?.level ?? 0, ally: c.ally, nonCombatant: !!cr?.details?.non_combatant };
+}
+
+/** Flag a creature as present but not fighting; stored in its details so find_encounter keeps excluding it. */
+function markNonCombatant(creature: CreatureRecord): CreatureRecord {
+  return { ...creature, details: { ...((creature.details as object) ?? {}), non_combatant: true } };
 }
 
 // ── find_encounter ────────────────────────────────────────────────────────────
@@ -110,9 +132,9 @@ function formatCombatant(c: CombatantEntry, position: number): string {
   if (c.type === 'CHARACTER') {
     return `  ${position}. [ally] Character ID ${c.character}`;
   }
-  const cr = c.creature as { name?: string; level?: number } | undefined;
+  const cr = c.creature as CombatantCreature;
   const parts = [
-    c.ally ? '[ally]' : '[enemy]',
+    c.ally ? '[ally]' : cr?.details?.non_combatant ? '[non-combatant]' : '[enemy]',
     cr?.name ?? 'Unknown',
     cr?.level !== undefined ? `Level ${cr.level}` : null,
   ].filter(Boolean);
@@ -173,9 +195,10 @@ interface EnemyCreatureInput {
   id: number;
   adjustment?: Adjustment;
   count?: number;
+  non_combatant?: boolean;
 }
 
-type CustomEnemyInput = (StatBlock | BasedStatBlock | Creature) & { count?: number };
+type CustomEnemyInput = (StatBlock | BasedStatBlock | Creature) & { count?: number; non_combatant?: boolean };
 
 type CreatureRecord = Record<string, unknown>;
 
@@ -282,15 +305,16 @@ async function buildCombatants(
     const fetched = toArray(await wgFetch<CreatureRecord | CreatureRecord[]>('find-creature', { id: uniqueIds }));
     const byId = new Map(fetched.map((c) => [c.id as number, c]));
 
-    for (const { id, adjustment, count = 1 } of enemy_creatures) {
+    for (const { id, adjustment, count = 1, non_combatant } of enemy_creatures) {
       const base = byId.get(id);
       if (!base) {
         warnings.push(`Creature ID ${id} not found; skipped.`);
         continue;
       }
       const dropped = await dropUnknownTraits(base as BuilderCreature);
-      if (dropped.length) warnings.push(`${base.name}: removed unknown trait ID(s) ${dropped.join(', ')} (Wanderer's Guide can't load them).`);
-      const creature = adjustment ? applyAdjustment(base, adjustment) : base;
+      if (dropped.length) warnings.push(`${base.name} (ID ${id}): ${unknownTraitsNote(dropped)}`);
+      const adjusted = adjustment ? applyAdjustment(base, adjustment) : base;
+      const creature = non_combatant ? markNonCombatant(adjusted) : adjusted;
       for (let i = 0; i < count; i++) list.push({ _id: randomUUID(), type: 'CREATURE', ally: false, creature });
     }
   }
@@ -299,7 +323,7 @@ async function buildCombatants(
     list.push({ _id: randomUUID(), type: 'CHARACTER', ally: true, character: charId });
   }
 
-  for (const { count = 1, ...custom } of custom_enemies) {
+  for (const { count = 1, non_combatant, ...custom } of custom_enemies) {
     let creature: CreatureRecord;
     if (isStatBlockInput(custom)) {
       const missing = 'base_creature_id' in custom || 'base_creature_name' in custom ? [] : validateStatBlock(custom as StatBlock);
@@ -319,6 +343,7 @@ async function buildCombatants(
       customBlocks.push(normalized.statBlock);
       creature = normalized.creature;
     }
+    if (non_combatant) creature = markNonCombatant(creature);
     for (let i = 0; i < count; i++) list.push({ _id: randomUUID(), type: 'CREATURE', ally: false, creature });
   }
 
@@ -332,8 +357,8 @@ async function fetchEncounter(id: number): Promise<Encounter> {
 }
 
 /** Save a new combatant list (a combatants-only upsert keeps the encounter's other fields) and describe the result. */
-async function saveCombatants(encounter: Encounter, list: CombatantEntry[], header: string[]): Promise<string> {
-  await wgFetch<unknown>('create-encounter', { id: encounter.id, combatants: { list } });
+async function saveCombatants(encounter: Encounter, list: CombatantEntry[], header: string[], dryRun = false): Promise<string> {
+  if (!dryRun) await wgFetch<unknown>('create-encounter', { id: encounter.id, combatants: { list } });
   const md = encounter.meta_data;
   const lines = [...header, '', 'Combatants:', ...list.map((c, i) => formatCombatant(c, i + 1))];
   const xpEntries = list.map(xpEntryOf).filter((x): x is XpEntry => x !== null);
@@ -346,14 +371,17 @@ export async function addCombatants(args: {
   enemy_creatures?: EnemyCreatureInput[];
   custom_enemies?: CustomEnemyInput[];
   ally_character_ids?: number[];
+  dry_run?: boolean;
 }): Promise<string> {
   const encounter = await fetchEncounter(args.encounter_id);
   const added = await buildCombatants(args.enemy_creatures, args.ally_character_ids, args.custom_enemies);
   if (!added.list.length) return ['No combatants were added.', ...added.warnings.map((w) => `- ${w}`)].join('\n');
   const list = [...(encounter.combatants?.list ?? []), ...added.list];
-  const header = [`Added ${added.list.length} combatant(s) to "${encounter.name}" (ID: ${encounter.id}).`];
+  const header = [args.dry_run
+    ? `Dry run: ${added.list.length} combatant(s) would be added to "${encounter.name}" (ID: ${encounter.id}); nothing was saved.`
+    : `Added ${added.list.length} combatant(s) to "${encounter.name}" (ID: ${encounter.id}).`];
   if (added.warnings.length) header.push('Warnings:', ...added.warnings.map((w) => `- ${w}`));
-  let text = await saveCombatants(encounter, list, header);
+  let text = await saveCombatants(encounter, list, header, args.dry_run);
   for (const block of added.customBlocks) text += `\n\nCustom creature as saved:\n${formatStatBlock(block)}`;
   return text;
 }
@@ -409,7 +437,7 @@ export async function repairEncounter(args: { encounter_id: number }): Promise<s
       notes.push(`${label}: rebuilt into the complete creature format${normalized.warnings.length ? ` (${normalized.warnings.join(' ')})` : ''}.`);
     }
     const dropped = await dropUnknownTraits(creature);
-    if (dropped.length) notes.push(`${label}: removed unknown trait ID(s) ${dropped.join(', ')}.`);
+    if (dropped.length) notes.push(`${label}: ${unknownTraitsNote(dropped)}`);
     repaired.push({ ...c, creature });
   }
   if (!notes.length) return `Encounter "${encounter.name}" (ID: ${encounter.id}): nothing to repair.`;
@@ -517,7 +545,7 @@ export async function deleteEncounter(args: { id: number }): Promise<string> {
 export async function encounterBudget(args: {
   party_level: number;
   party_size?: number;
-  creatures?: { id?: number; name?: string; level?: number; adjustment?: Adjustment; count?: number }[];
+  creatures?: { id?: number; name?: string; level?: number; adjustment?: Adjustment; count?: number; non_combatant?: boolean }[];
 }): Promise<string> {
   const partySize = args.party_size ?? 4;
   const entries: XpEntry[] = [];
@@ -535,7 +563,7 @@ export async function encounterBudget(args: {
       level = adjustedLevel(level, c.adjustment);
       name = `${name} (${c.adjustment.toLowerCase()})`;
     }
-    for (let i = 0; i < (c.count ?? 1); i++) entries.push({ name, level, ally: false });
+    for (let i = 0; i < (c.count ?? 1); i++) entries.push({ name, level, ally: false, nonCombatant: c.non_combatant });
   }
   if (!entries.length) {
     const budgets = encounterBudgets(partySize).map((b) => `${b.label} ${b.xp}`).join(' | ');

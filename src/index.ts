@@ -62,7 +62,8 @@ const CUSTOM_CREATURE_SCHEMA = {
     level: { type: 'number' },
     rarity: { type: 'string', enum: ['COMMON', 'UNCOMMON', 'RARE', 'UNIQUE'] },
     size: { type: 'string', enum: ['TINY', 'SMALL', 'MEDIUM', 'LARGE', 'HUGE', 'GARGANTUAN'] },
-    traits: REF_LIST('Trait'),
+    traits: { ...REF_LIST('Trait'), description: 'Trait names (or IDs). With a base creature, these REPLACE its traits; use add_traits to keep them' },
+    add_traits: { ...REF_LIST('Trait'), description: 'With a base creature: traits added to the base creature\'s traits' },
     description: { type: 'string', description: 'Flavor text' },
     attributes: {
       type: 'object',
@@ -146,13 +147,15 @@ const CUSTOM_CREATURE_SCHEMA = {
     },
     abilities: {
       type: 'array',
-      description: 'Special abilities: copy one from a database creature (from_creature), copy a database action/feat (existing: true), or write the rules text.',
+      description:
+        'Special abilities. Standard creature abilities (Reactive Strike, Improved Grab, Knockdown, Push, Fast Healing 5, Regeneration 10 (Deactivated by Fire), Telepathy 100 feet, Void Healing, Shield Block, Throw Rock…) ' +
+        'only need {"name": "...", "existing": true}. Otherwise copy one from a database creature (from_creature), copy a database action/feat (existing: true), or write the rules text.',
       items: {
         type: 'object',
         properties: {
           name: { type: 'string' },
-          existing: { type: 'boolean', description: 'Copy a database action/feat with this exact name' },
-          from_creature: { oneOf: [{ type: 'string' }, { type: 'number' }], description: 'Copy the ability with this name from a database creature (exact name or ID), e.g. Reactive Strike from "Guard"' },
+          existing: { type: 'boolean', description: 'A standard creature ability (e.g. "Reactive Strike"), or a database action/feat with this exact name' },
+          from_creature: { oneOf: [{ type: 'string' }, { type: 'number' }], description: 'Copy the ability with this name from a database creature (exact name or ID). Legacy names match (Attack of Opportunity = Reactive Strike)' },
           actions: { type: 'string', enum: ['ONE-ACTION', 'TWO-ACTIONS', 'THREE-ACTIONS', 'REACTION', 'FREE-ACTION', 'ONE-TO-TWO-ACTIONS', 'ONE-TO-THREE-ACTIONS', 'TWO-TO-THREE-ACTIONS'] },
           traits: REF_LIST('Trait'),
           frequency: { type: 'string' },
@@ -167,7 +170,7 @@ const CUSTOM_CREATURE_SCHEMA = {
     replace_spellcasting: { type: 'boolean', description: 'With a base creature: drop its spells instead of adding to them' },
     replace_abilities: { type: 'boolean', description: 'With a base creature: drop its abilities instead of adding to them' },
     remove_abilities: { type: 'array', items: { type: 'string' }, description: 'With a base creature: ability names to remove' },
-    remove_traits: { type: 'array', items: { type: 'string' }, description: 'With a base creature: trait names to remove' },
+    remove_traits: { type: 'array', items: { type: 'string' }, description: 'With a base creature (base_creature_id or base_creature_name): trait names to remove' },
   },
 } as const;
 
@@ -223,6 +226,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             type: 'array',
             items: { oneOf: [{ type: 'string' }, { type: 'number' }] },
             description: 'Trait names or IDs; results must have AT LEAST ONE of them (best for themes, e.g. ["Air", "Beast"])',
+          },
+          traits_none: {
+            type: 'array',
+            items: { oneOf: [{ type: 'string' }, { type: 'number' }] },
+            description: 'Trait names or IDs; results must have NONE of them (e.g. ["Human"] to exclude humans)',
           },
           level_min: { type: 'number', description: 'Minimum level (feats, items, creatures)' },
           level_max: { type: 'number', description: 'Maximum level (feats, items, creatures)' },
@@ -341,7 +349,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: 'find_creature',
       description:
-        'Look up Pathfinder 2e creatures by name or ID. Use for encounter prep or when players encounter a monster.',
+        'Look up Pathfinder 2e creatures by name or ID (or an array of IDs). Each stat block header shows the creature\'s database ID for use in create_encounter. Use for encounter prep or when players encounter a monster.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -443,7 +451,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       name: 'encounter_budget',
       description:
         'Calculate encounter XP and difficulty (GM Core Building Encounters) before creating it. ' +
-        'With no creatures, returns the XP budgets for the party. Creatures can be given by level, database ID, or exact name, with elite/weak adjustments.',
+        'With no creatures, returns the XP budgets for the party. Creatures can be given by level, database ID, or exact name, with elite/weak adjustments. ' +
+        'Mark creatures that are present but not fighting (a social NPC) as non_combatant: the report then shows the combat XP that sets the difficulty separately from the total.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -459,6 +468,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                 level: { type: 'number', description: 'Creature level (for custom creatures)' },
                 adjustment: { type: 'string', enum: ['ELITE', 'WEAK'] },
                 count: { type: 'number', description: 'How many (default 1)' },
+                non_combatant: { type: 'boolean', description: 'Present but not fighting (e.g. a social NPC): excluded from the combat XP and difficulty' },
               },
             },
           },
@@ -489,7 +499,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       description:
         'Create an encounter with database creatures and/or custom creatures, and report its XP and difficulty. ' +
         'Use find_creature / advanced_search for database IDs. Custom creatures are written as a normal PF2e stat block (spells, items, and traits by name) ' +
-        'or as an existing creature plus overrides (base_creature_id). Use dry_run with export_file to produce an importable JSON file without saving.',
+        'or as an existing creature plus overrides (base_creature_id). Use dry_run to check the XP budget and custom stat blocks before saving; combine it with export_file to produce an importable JSON file.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -511,14 +521,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                   description: 'GM Core elite (+2 stats, +1 level, more HP) or weak (-2 stats, -1 level, less HP) adjustment',
                 },
                 count: { type: 'number', description: 'How many copies (default 1)' },
+                non_combatant: { type: 'boolean', description: 'Present but not fighting (e.g. a social NPC): shown, but excluded from the combat XP and difficulty' },
               },
               required: ['id'],
             },
           },
           custom_enemies: {
             type: 'array',
-            description: 'Custom creatures. Each item uses the same shape as preview_custom_creature, plus an optional count.',
-            items: { ...CUSTOM_CREATURE_SCHEMA, properties: { ...CUSTOM_CREATURE_SCHEMA.properties, count: { type: 'number', description: 'How many copies (default 1)' } } },
+            description: 'Custom creatures. Each item uses the same shape as preview_custom_creature, plus an optional count and non_combatant.',
+            items: { ...CUSTOM_CREATURE_SCHEMA, properties: { ...CUSTOM_CREATURE_SCHEMA.properties, count: { type: 'number', description: 'How many copies (default 1)' }, non_combatant: { type: 'boolean', description: 'Present but not fighting (e.g. a social NPC): shown, but excluded from the combat XP and difficulty' } } },
           },
           ally_character_ids: {
             type: 'array',
@@ -526,14 +537,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             description: 'Character IDs to add as allied party members.',
           },
           export_file: { type: 'string', description: 'Also write the encounter as an importable Wanderer\'s Guide JSON file to this path' },
-          dry_run: { type: 'boolean', description: 'Build and report without saving to Wanderer\'s Guide (combine with export_file)' },
+          dry_run: { type: 'boolean', description: 'Build everything and report the XP budget, difficulty, and custom stat blocks without saving to Wanderer\'s Guide (no campaign needed; combine with export_file)' },
         },
         required: ['name'],
       },
     },
     {
       name: 'add_combatants',
-      description: 'Add creatures (database or custom) or allied characters to an existing encounter, then report the new XP total.',
+      description: 'Add creatures (database or custom) or allied characters to an existing encounter, then report the new XP total. To swap creatures, call remove_combatants then add_combatants; use dry_run to check the new XP first.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -546,6 +557,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
                 id: { type: 'number', description: 'Creature ID' },
                 adjustment: { type: 'string', enum: ['ELITE', 'WEAK'] },
                 count: { type: 'number', description: 'How many copies (default 1)' },
+                non_combatant: { type: 'boolean', description: 'Present but not fighting (e.g. a social NPC): shown, but excluded from the combat XP and difficulty' },
               },
               required: ['id'],
             },
@@ -553,9 +565,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           custom_enemies: {
             type: 'array',
             description: 'Custom creatures, same shape as in create_encounter',
-            items: { ...CUSTOM_CREATURE_SCHEMA, properties: { ...CUSTOM_CREATURE_SCHEMA.properties, count: { type: 'number' } } },
+            items: { ...CUSTOM_CREATURE_SCHEMA, properties: { ...CUSTOM_CREATURE_SCHEMA.properties, count: { type: 'number' }, non_combatant: { type: 'boolean', description: 'Present but not fighting (e.g. a social NPC): shown, but excluded from the combat XP and difficulty' } } },
           },
           ally_character_ids: { type: 'array', items: { type: 'number' } },
+          dry_run: { type: 'boolean', description: 'Report the resulting combatants and XP without saving' },
         },
         required: ['encounter_id'],
       },

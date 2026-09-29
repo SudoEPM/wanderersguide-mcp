@@ -142,6 +142,8 @@ export interface BasedStatBlock extends Partial<Omit<StatBlock, 'saves' | 'attri
   replace_spellcasting?: boolean;
   replace_abilities?: boolean;
   remove_abilities?: string[];
+  /** Traits added to the base creature's; `traits` replaces them instead. */
+  add_traits?: Ref[];
   remove_traits?: string[];
 }
 
@@ -226,7 +228,7 @@ async function resolveRefs(endpoint: string, refs: Ref[] | undefined, kind: stri
       const row = rows.get(id);
       // IDs the API can't return (e.g. trait 2924 on some legacy creatures) make WG log "not found"
       if (row) out.push({ id, name: row.name });
-      else ctx.warnings.push(`Unknown ${kind} ID ${id} was dropped.`);
+      else ctx.warnings.push(`Unknown ${kind} ID ${id} was dropped: Wanderer's Guide has no ${kind} with that ID. Pass ${kind}s by name instead.`);
     }
   }
   return out;
@@ -751,21 +753,112 @@ function normalizeAbility(raw: Record<string, unknown>, level: number): Record<s
   };
 }
 
+/**
+ * Standard creature abilities (GM Core glossary). Official creatures store these with the glossary
+ * key as their description, which the site expands into the full rules text. Keys, action costs,
+ * categories, and trait IDs are taken from the Monster Core and Bestiary creatures in the database.
+ */
+interface StandardAbility {
+  key: string;
+  actions: ActionCost;
+  category: 'offensive' | 'defensive' | 'interaction';
+  traits?: number[];
+}
+
+const STANDARD_ABILITIES: Record<string, StandardAbility> = {
+  'reactive strike': { key: 'ReactiveStrike', actions: 'REACTION', category: 'defensive' },
+  'attack of opportunity': { key: 'ReactiveStrike', actions: 'REACTION', category: 'defensive' },
+  'improved grab': { key: 'ImprovedGrab', actions: 'FREE-ACTION', category: 'offensive' },
+  'improved knockdown': { key: 'ImprovedKnockdown', actions: 'FREE-ACTION', category: 'offensive' },
+  'improved push': { key: 'ImprovedPush', actions: 'FREE-ACTION', category: 'offensive' },
+  knockdown: { key: 'Knockdown', actions: 'ONE-ACTION', category: 'offensive' },
+  push: { key: 'Push', actions: 'ONE-ACTION', category: 'offensive' },
+  'throw rock': { key: 'ThrowRock', actions: 'ONE-ACTION', category: 'offensive' },
+  'catch rock': { key: 'CatchRock', actions: 'REACTION', category: 'defensive' },
+  'shield block': { key: 'ShieldBlock', actions: 'REACTION', category: 'defensive' },
+  'power attack': { key: 'PowerAttack', actions: 'TWO-ACTIONS', category: 'offensive' },
+  'form up': { key: 'FormUp', actions: 'ONE-ACTION', category: 'interaction' },
+  'change shape': { key: 'ChangeShape', actions: 'ONE-ACTION', category: 'offensive', traits: [1432, 1475, 1453] },
+  'fast healing': { key: 'FastHealing', actions: null, category: 'defensive' },
+  regeneration: { key: 'Regeneration', actions: null, category: 'defensive' },
+  'void healing': { key: 'NegativeHealing', actions: null, category: 'defensive' },
+  'negative healing': { key: 'NegativeHealing', actions: null, category: 'defensive' },
+  'swarm mind': { key: 'SwarmMind', actions: null, category: 'defensive' },
+  'light blindness': { key: 'LightBlindness', actions: null, category: 'defensive' },
+  'all-around vision': { key: 'AllAroundVision', actions: null, category: 'interaction' },
+  'greater darkvision': { key: 'GreaterDarkvision', actions: null, category: 'interaction' },
+  telepathy: { key: 'Telepathy', actions: null, category: 'interaction', traits: [1492, 1504, 1448] },
+  thoughtsense: { key: 'Thoughtsense', actions: null, category: 'interaction', traits: [1448, 1514] },
+  tremorsense: { key: 'Tremorsense', actions: null, category: 'interaction' },
+  lifesense: { key: 'Lifesense', actions: null, category: 'interaction' },
+  wavesense: { key: 'Wavesense', actions: null, category: 'interaction' },
+  'constant spells': { key: 'ConstantSpells', actions: null, category: 'interaction' },
+  'at-will spells': { key: 'AtWillSpells', actions: null, category: 'interaction' },
+};
+
+/** Legacy glossary keys stored on pre-remaster creatures, mapped to their remaster key. */
+const LEGACY_GLOSSARY_KEYS: Record<string, string> = { AttackOfOpportunity: 'ReactiveStrike' };
+
+/** "Fast Healing 5 (In Water)", "Telepathy 100 feet" → the standard ability they are, if any. */
+export function standardAbility(name: string): StandardAbility | null {
+  const base = name
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, '')
+    .replace(/\b\d+\s*(?:feet|ft\.?)?/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return STANDARD_ABILITIES[base] ?? null;
+}
+
+function standardAbilityBlock(name: string, std: StandardAbility, level: number): Record<string, unknown> {
+  return normalizeAbility({
+    name,
+    actions: std.actions,
+    description: std.key,
+    traits: std.traits ?? [],
+    meta_data: { foundry: { category: std.category } },
+  }, level);
+}
+
+/** Find an ability on a creature by name, matching remaster/legacy names of standard abilities. */
+function findCreatureAbility(creature: Creature, name: string): Record<string, unknown> | undefined {
+  const abilities = creature.abilities_base ?? [];
+  const wanted = name.trim().toLowerCase();
+  const exact = abilities.find((a) => String(a.name).trim().toLowerCase() === wanted);
+  if (exact) return exact;
+  const key = standardAbility(name)?.key;
+  return key ? abilities.find((a) => standardAbility(String(a.name))?.key === key) : undefined;
+}
+
 async function buildAbility(ab: AbilityInput, level: number, ctx: Resolver): Promise<Record<string, unknown> | null> {
   if (ab._raw) return normalizeAbility(ab._raw, level);
   if (ab.from_creature !== undefined) {
-    const query = typeof ab.from_creature === 'number' || /^d+$/.test(ab.from_creature)
+    const query = typeof ab.from_creature === 'number' || /^\d+$/.test(ab.from_creature)
       ? { id: Number(ab.from_creature) }
       : { name: ab.from_creature };
-    const [source] = toArray(await wgFetch<Creature | Creature[]>('find-creature', query));
-    const found = source?.abilities_base?.find((a) => String(a.name).toLowerCase() === ab.name.toLowerCase());
-    if (!found) {
-      ctx.warnings.push(`Ability "${ab.name}" not found on creature "${ab.from_creature}"; skipped.`);
+    const sources = toArray(await wgFetch<Creature | Creature[]>('find-creature', query));
+    if (!sources.length) {
+      ctx.warnings.push(`Creature "${ab.from_creature}" (from_creature for ability "${ab.name}") not found; ability skipped.`);
       return null;
     }
-    return { ...found, level };
+    // Several creatures can share a name (legacy Bestiary and Monster Core); use the first that has the ability
+    for (const source of sources) {
+      const found = findCreatureAbility(source, ab.name);
+      if (!found) continue;
+      const description = String(found.description ?? '');
+      // A legacy "Attack of Opportunity" copied as "Reactive Strike" takes the remaster name and glossary entry
+      return normalizeAbility({ ...found, name: ab.name, description: LEGACY_GLOSSARY_KEYS[description] ?? description, level }, level);
+    }
+    const has = [...new Set(sources.flatMap((s) => (s.abilities_base ?? []).map((a) => String(a.name))))];
+    ctx.warnings.push(
+      `Ability "${ab.name}" not found on creature "${ab.from_creature}" (it has: ${has.length ? has.join(', ') : 'no abilities'}); skipped.` +
+        (standardAbility(ab.name) ? ` "${ab.name}" is a standard creature ability: use existing: true instead.` : ''),
+    );
+    return null;
   }
   if (ab.existing) {
+    const std = standardAbility(ab.name);
+    if (std) return standardAbilityBlock(ab.name, std, level);
     // Prefer actions, then feats; class features describe player options ("you gain …")
     let row = await rowByName('find-ability-block', ab.name, (r) => r.type === 'action');
     row ??= await rowByName('find-ability-block', ab.name, (r) => r.type === 'feat');
@@ -1029,7 +1122,8 @@ export async function resolveStatBlock(input: StatBlock | BasedStatBlock): Promi
     notes: based.notes ?? base.notes,
     skills: { ...base.skills, ...based.skills },
     speeds: { ...base.speeds, ...based.speeds },
-    traits: mergeUnique(base.traits, based.traits, refKey).filter((t) => !removeTraits.has(refKey(t))),
+    // Given traits replace the base creature's (a reskinned Human captain shouldn't stay Human); add_traits merges
+    traits: mergeUnique(based.traits ?? base.traits, based.add_traits, refKey).filter((t) => !removeTraits.has(refKey(t))),
     languages: mergeUnique(base.languages, based.languages, refKey),
     senses: mergeUnique(base.senses, based.senses, (s) => s.toLowerCase()),
     immunities: mergeUnique(base.immunities, based.immunities, (s) => s.toLowerCase()),
@@ -1070,6 +1164,13 @@ export async function normalizeRawCreature(raw: Creature): Promise<BuildResult &
   const result = await buildCreature(block);
   const statBlock = await decompileCreature(result.creature);
   return { creature: result.creature, warnings: [...warnings, ...result.warnings], statBlock };
+}
+
+/** Explain trait IDs removed by dropUnknownTraits: their names can't be recovered, and nothing else needs fixing. */
+export function unknownTraitsNote(ids: number[]): string {
+  return `removed trait ID(s) ${ids.join(', ')}: Wanderer's Guide has no trait with ${ids.length > 1 ? 'these IDs' : 'this ID'} ` +
+    '(a trait deleted from its database, so its name is unknown) and the website fails to load creatures that reference it. ' +
+    'The stats are unaffected and nothing else needs fixing; to add a replacement trait, use a custom enemy with base_creature_id and add_traits.';
 }
 
 /** Remove giveTrait operations whose trait the API can't return; returns the dropped IDs. */

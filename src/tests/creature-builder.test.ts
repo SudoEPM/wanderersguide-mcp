@@ -5,10 +5,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { wgFetch } from '../client.js';
 import { findCreature } from '../tools/creatures.js';
-import { buildCreature, buildCustomCreature, decompileCreature, type Creature, type StatBlock } from '../tools/creature-builder.js';
-import { createEncounter, encounterBudget } from '../tools/encounters.js';
+import {
+  buildCreature,
+  buildCustomCreature,
+  decompileCreature,
+  standardAbility,
+  unknownTraitsNote,
+  type Creature,
+  type StatBlock,
+} from '../tools/creature-builder.js';
+import { createEncounter, encounterBudget, xpReport } from '../tools/encounters.js';
 import { adjustedLevel, adjustmentHp, creatureXp, difficultyFor, splitDamageExtra } from '../creature-engine.js';
-import { TIMEOUT } from './helpers.js';
+import { NO_MATCH, TIMEOUT } from './helpers.js';
 
 describe('encounter rules (offline)', () => {
   test('creature XP by level difference', () => {
@@ -37,6 +45,43 @@ describe('encounter rules (offline)', () => {
     assert.deepEqual(splitDamageExtra('3 + Putrid Plague'), { bonus: 3, text: 'Putrid Plague' });
     assert.deepEqual(splitDamageExtra('-2 + 1d6 fire'), { bonus: -2, text: '1d6 fire' });
     assert.deepEqual(splitDamageExtra('Improved Grab'), { bonus: 0, text: 'Improved Grab' });
+  });
+
+  test('creatures more than 4 levels below the party are listed as worth no XP', () => {
+    const report = xpReport([{ name: 'Rat', level: 0, ally: false }, { name: 'Thug', level: 5, ally: false }], 5);
+    assert.match(report, /Rat — level 0 \(party -5\): 0 XP \(more than 4 levels below the party: not worth XP\)/);
+    assert.match(report, /Total: 40 XP/);
+  });
+
+  test('non-combatants are reported apart from the combat XP that sets difficulty', async () => {
+    const report = await encounterBudget({
+      party_level: 5,
+      creatures: [{ name: 'Samuel', level: 6, non_combatant: true }, { name: 'Thug', level: 5, count: 3 }],
+    });
+    assert.match(report, /Samuel \[non-combatant\] — level 6 \(party \+1\): 60 XP/);
+    assert.match(report, /Combat XP: 120 XP → \*\*Severe\*\*/);
+    assert.match(report, /Total including 1 non-combatant\(s\): 180 XP/);
+    const plain = await encounterBudget({ party_level: 5, creatures: [{ name: 'Thug', level: 5, count: 3 }] });
+    assert.match(plain, /Total: 120 XP → \*\*Severe\*\*/);
+    assert.doesNotMatch(plain, /Combat XP/);
+  });
+
+  test('standard creature abilities match by name, legacy name, and with qualifiers', () => {
+    assert.equal(standardAbility('Reactive Strike')?.key, 'ReactiveStrike');
+    assert.equal(standardAbility('Attack of Opportunity')?.key, 'ReactiveStrike');
+    assert.equal(standardAbility('Reactive Strike (Jaws Only)')?.key, 'ReactiveStrike');
+    assert.equal(standardAbility('Fast Healing 5 (In Water)')?.key, 'FastHealing');
+    assert.equal(standardAbility('Telepathy 100 feet')?.key, 'Telepathy');
+    assert.equal(standardAbility('Negative Healing')?.key, 'NegativeHealing');
+    assert.equal(standardAbility('Improved Push 10 feet')?.actions, 'FREE-ACTION');
+    assert.equal(standardAbility('Bloodcurdling Screech'), null);
+  });
+
+  test('unknown trait note names the IDs and says nothing else needs fixing', () => {
+    const note = unknownTraitsNote([2924]);
+    assert.match(note, /trait ID\(s\) 2924/);
+    assert.match(note, /no trait with this ID/);
+    assert.match(note, /nothing else needs fixing/);
   });
 });
 
@@ -111,6 +156,47 @@ describe('creature builder', () => {
     assert.ok(!statBlock.abilities?.some((a) => a.name === 'Stench'));
     assert.ok(statBlock.speeds?.fly, 'base fly speed kept');
   });
+
+  test('traits replace a base creature\'s traits; add_traits and remove_traits work with base_creature_name', { timeout: TIMEOUT * 3 }, async () => {
+    const names = (b: StatBlock) => (b.traits ?? []).map((t) => (typeof t === 'object' ? t.name : t)).sort();
+    const replaced = await buildCustomCreature({ base_creature_name: 'Captain Of The Guard', name: 'Orc Captain', traits: ['Orc', 'Humanoid'] });
+    assert.deepEqual(names(replaced.statBlock), ['Humanoid', 'Orc']);
+    const added = await buildCustomCreature({ base_creature_name: 'Captain Of The Guard', add_traits: ['Orc'], remove_traits: ['Human', 'lawful'] });
+    const addedNames = names(added.statBlock);
+    assert.ok(addedNames.includes('Orc') && addedNames.includes('Humanoid'));
+    assert.ok(!addedNames.includes('Human') && !addedNames.includes('Lawful'), `unexpected traits ${addedNames}`);
+  });
+
+  test('copies abilities from a creature by name or ID, matching legacy names', { timeout: TIMEOUT * 3 }, async () => {
+    // The Guard (legacy Bestiary) has "Attack of Opportunity", the pre-remaster Reactive Strike
+    const { statBlock, warnings, creature } = await buildCustomCreature({
+      base_creature_id: 10123, name: 'Guard Harpy',
+      abilities: [{ name: 'Reactive Strike', from_creature: 'Guard' }, { name: 'Attack of Opportunity', from_creature: '12025' }],
+    });
+    assert.deepEqual(warnings, []);
+    const copied = (creature.abilities_base ?? []).filter((a) => a.description === 'ReactiveStrike');
+    assert.deepEqual(copied.map((a) => a.name), ['Reactive Strike', 'Attack of Opportunity']);
+    assert.ok(copied.every((a) => a.actions === 'REACTION' && a.level === 5));
+    assert.ok(statBlock.abilities?.some((a) => a.name === 'Reactive Strike'));
+  });
+
+  test('from_creature explains a missing ability by listing what the creature has', { timeout: TIMEOUT * 2 }, async () => {
+    const { warnings } = await buildCustomCreature({ base_creature_id: 10123, abilities: [{ name: 'Breath Weapon', from_creature: 'Guard' }] });
+    assert.ok(warnings.some((w) => /"Breath Weapon" not found on creature "Guard" \(it has: Attack of Opportunity\)/.test(w)), warnings.join('\n'));
+    const missing = await buildCustomCreature({ base_creature_id: 10123, abilities: [{ name: 'Grab', from_creature: NO_MATCH }] });
+    assert.ok(missing.warnings.some((w) => /not found; ability skipped/.test(w)));
+  });
+
+  test('existing: true builds standard creature abilities as glossary entries', { timeout: TIMEOUT * 2 }, async () => {
+    const { warnings, creature } = await buildCustomCreature({
+      base_creature_id: 10123, replace_abilities: true,
+      abilities: [{ name: 'Reactive Strike', existing: true }, { name: 'Telepathy 100 feet', existing: true }],
+    });
+    assert.deepEqual(warnings, []);
+    const [rs, telepathy] = creature.abilities_base ?? [];
+    assert.deepEqual([rs.name, rs.actions, rs.description, rs.type], ['Reactive Strike', 'REACTION', 'ReactiveStrike', 'action']);
+    assert.deepEqual(telepathy.traits, [1492, 1504, 1448]);
+  });
 });
 
 describe('encounter planning', () => {
@@ -141,6 +227,11 @@ describe('encounter planning', () => {
       await rm(path, { force: true });
     }
   });
+
+  test('dry run explains removed unknown trait IDs (Drow Rogue, trait 2924)', { timeout: TIMEOUT * 2 }, async () => {
+    const result = await createEncounter({ name: 'Drow Test', party_level: 3, dry_run: true, enemy_creatures: [{ id: 10463 }] });
+    assert.match(result, /Drow Rogue \(ID 10463\): removed trait ID\(s\) 2924: Wanderer's Guide has no trait with this ID/);
+  });
 });
 
 describe('creature benchmarks', () => {
@@ -166,15 +257,23 @@ describe('editing encounter combatants', () => {
     const created = await createEncounter({ campaign_id: campaign.id, name: `Edit Test ${Date.now()}`, party_level: 5, description: 'keep me', enemy_creatures: [{ id: 10096, count: 2 }] });
     const id = Number(created.match(/\(ID: (\d+)\)/)![1]);
     try {
+      const preview = await addCombatants({ encounter_id: id, enemy_creatures: [{ id: 10123 }], dry_run: true });
+      assert.match(preview, /Dry run: 1 combatant\(s\) would be added/);
+      assert.match(preview, /3\. \[enemy\] Harpy Level 5/);
+      assert.doesNotMatch(await findEncounter({ id }), /3\. /, 'dry run must not save');
       const added = await addCombatants({ encounter_id: id, enemy_creatures: [{ id: 10123 }] });
       assert.match(added, /3\. \[enemy\] Harpy Level 5/);
       const removed = await removeCombatants({ encounter_id: id, positions: [1, 2] });
       assert.match(removed, /Total: 40 XP/);
+      await addCombatants({ encounter_id: id, enemy_creatures: [{ id: 10123, non_combatant: true }] });
       await updateEncounter({ id, party_size: 5 });
       const found = await findEncounter({ id });
       assert.match(found, /keep me/);
       assert.match(found, /Party: Level 5, 5 players/);
       assert.match(found, /1\. \[enemy\] Harpy Level 5/);
+      assert.match(found, /2\. \[non-combatant\] Harpy Level 5/);
+      assert.match(found, /Combat XP: 40 XP/);
+      assert.match(found, /Total including 1 non-combatant\(s\): 80 XP/);
     } finally {
       await deleteEncounter({ id });
     }
