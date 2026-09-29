@@ -15,7 +15,7 @@ import { findAncestry } from './tools/ancestries.js';
 import { findBackground } from './tools/backgrounds.js';
 import { findCharacter } from './tools/characters.js';
 import { findCampaign } from './tools/campaigns.js';
-import { findEncounter, createEncounter, updateEncounter, deleteEncounter } from './tools/encounters.js';
+import { findEncounter, createEncounter, updateEncounter, deleteEncounter, encounterBudget, previewCustomCreature } from './tools/encounters.js';
 import { findArchetype, findClassArchetype } from './tools/archetypes.js';
 import { findClass } from './tools/classes.js';
 import { findLanguage } from './tools/languages.js';
@@ -31,6 +31,134 @@ const apiKey = process.env.WG_API_KEY;
 if (!apiKey || apiKey.length !== 36) {
   console.error('WARNING: WG_API_KEY is not set to a 36-character UUID. API calls will fail until it is configured.');
 }
+
+const REF_LIST = (what: string) => ({
+  type: 'array',
+  items: { oneOf: [{ type: 'string' }, { type: 'number' }] },
+  description: `${what} names (or IDs)`,
+});
+
+// A normal PF2e stat block; the MCP converts it to Wanderer's Guide's creature format.
+const CUSTOM_CREATURE_SCHEMA = {
+  type: 'object',
+  description:
+    'A custom creature. Either a full stat block (name, level, perception, ac, hp, saves required), or base_creature_id/base_creature_name plus only the fields to change. ' +
+    'All numbers are final totals as printed in a stat block. Stay close to GM Core "Building Creatures" values for the level; compare with find_creature results.',
+  properties: {
+    base_creature_id: { type: 'number', description: 'Start from this database creature and apply the other fields as overrides' },
+    base_creature_name: { type: 'string', description: 'Exact name of the base creature (alternative to base_creature_id)' },
+    name: { type: 'string' },
+    level: { type: 'number' },
+    rarity: { type: 'string', enum: ['COMMON', 'UNCOMMON', 'RARE', 'UNIQUE'] },
+    size: { type: 'string', enum: ['TINY', 'SMALL', 'MEDIUM', 'LARGE', 'HUGE', 'GARGANTUAN'] },
+    traits: REF_LIST('Trait'),
+    description: { type: 'string', description: 'Flavor text' },
+    attributes: {
+      type: 'object',
+      description: 'Attribute modifiers, e.g. {"str": 4, "dex": 2, "con": 3, "int": -1, "wis": 1, "cha": 0}',
+      properties: Object.fromEntries(['str', 'dex', 'con', 'int', 'wis', 'cha'].map((a) => [a, { type: 'number' }])),
+    },
+    perception: { type: 'number', description: 'Perception modifier' },
+    senses: { type: 'array', items: { type: 'string' }, description: 'e.g. "darkvision", "scent (imprecise) 30 feet"' },
+    languages: REF_LIST('Language'),
+    skills: { type: 'object', additionalProperties: { type: 'number' }, description: 'Skill modifiers, e.g. {"Stealth": 14, "Religion Lore": 12}' },
+    ac: { type: 'number' },
+    saves: {
+      type: 'object',
+      properties: { fort: { type: 'number' }, ref: { type: 'number' }, will: { type: 'number' } },
+    },
+    hp: { type: 'number' },
+    notes: {
+      type: 'object',
+      description: 'Conditional notes, e.g. {"saves": ["+1 status to all saves vs. magic"], "hp": ["negative healing"]}',
+      properties: Object.fromEntries(['ac', 'hp', 'saves', 'fort', 'ref', 'will', 'perception'].map((k) => [k, { type: 'array', items: { type: 'string' } }])),
+    },
+    immunities: { type: 'array', items: { type: 'string' }, description: 'e.g. ["poison", "paralyzed"]' },
+    weaknesses: { type: 'array', items: { type: 'string' }, description: 'e.g. ["cold iron 5", "holy 10"]' },
+    resistances: { type: 'array', items: { type: 'string' }, description: 'e.g. ["fire 10", "physical 5 (except silver)"]' },
+    speeds: {
+      type: 'object',
+      properties: Object.fromEntries(['land', 'fly', 'swim', 'climb', 'burrow'].map((k) => [k, { type: 'number' }])),
+    },
+    strikes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          type: { type: 'string', enum: ['melee', 'ranged'] },
+          attack: { type: 'number', description: 'Attack modifier for the first Strike, e.g. 15' },
+          damage: { type: 'string', description: 'e.g. "2d8+6 slashing" or "1d10+4 piercing plus 1d6 fire"' },
+          traits: REF_LIST('Weapon trait (e.g. "Agile", "Finesse", "Reach")'),
+          range: { type: 'number', description: 'Range increment in feet (ranged strikes)' },
+          reload: { type: 'number' },
+          effects: { type: 'array', items: { type: 'string' }, description: 'On-hit effects, e.g. ["Grab"]' },
+        },
+        required: ['name', 'attack', 'damage'],
+      },
+    },
+    spellcasting: {
+      type: 'array',
+      description: 'Spellcasting entries. Spells are looked up by exact name in the database.',
+      items: {
+        type: 'object',
+        properties: {
+          type: { type: 'string', enum: ['innate', 'prepared', 'spontaneous', 'focus', 'ritual'] },
+          tradition: { type: 'string', enum: ['arcane', 'divine', 'occult', 'primal'] },
+          dc: { type: 'number', description: 'Spell DC' },
+          attack: { type: 'number', description: 'Spell attack modifier (defaults to DC - 10)' },
+          spells: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                rank: { type: 'number', description: 'Rank cast at (cantrips: their heightened rank)' },
+                casts_per_day: { oneOf: [{ type: 'number' }, { type: 'string', enum: ['at-will', 'constant'] }], description: 'Innate spells only' },
+              },
+              required: ['name', 'rank'],
+            },
+          },
+          slots: {
+            type: 'array',
+            description: 'Spontaneous casters: slots per rank (default 3 per rank). Prepared slots come from the spell list.',
+            items: { type: 'object', properties: { rank: { type: 'number' }, amount: { type: 'number' } } },
+          },
+        },
+        required: ['type', 'spells'],
+      },
+    },
+    items: {
+      type: 'array',
+      description: 'Existing items carried (looked up by exact name), e.g. [{"name": "Healing Potion (Minor)", "quantity": 2}]',
+      items: { type: 'object', properties: { name: { type: 'string' }, id: { type: 'number' }, quantity: { type: 'number' } } },
+    },
+    abilities: {
+      type: 'array',
+      description: 'Special abilities: copy one from a database creature (from_creature), copy a database action/feat (existing: true), or write the rules text.',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          existing: { type: 'boolean', description: 'Copy a database action/feat with this exact name' },
+          from_creature: { oneOf: [{ type: 'string' }, { type: 'number' }], description: 'Copy the ability with this name from a database creature (exact name or ID), e.g. Reactive Strike from "Guard"' },
+          actions: { type: 'string', enum: ['ONE-ACTION', 'TWO-ACTIONS', 'THREE-ACTIONS', 'REACTION', 'FREE-ACTION', 'ONE-TO-TWO-ACTIONS', 'ONE-TO-THREE-ACTIONS', 'TWO-TO-THREE-ACTIONS'] },
+          traits: REF_LIST('Trait'),
+          frequency: { type: 'string' },
+          trigger: { type: 'string' },
+          requirements: { type: 'string' },
+          description: { type: 'string', description: 'Rules text, e.g. "**Effect** ..." with saves as "DC 22 Reflex"' },
+        },
+        required: ['name'],
+      },
+    },
+    replace_strikes: { type: 'boolean', description: 'With a base creature: drop its strikes instead of adding to them' },
+    replace_spellcasting: { type: 'boolean', description: 'With a base creature: drop its spells instead of adding to them' },
+    replace_abilities: { type: 'boolean', description: 'With a base creature: drop its abilities instead of adding to them' },
+    remove_abilities: { type: 'array', items: { type: 'string' }, description: 'With a base creature: ability names to remove' },
+    remove_traits: { type: 'array', items: { type: 'string' }, description: 'With a base creature: trait names to remove' },
+  },
+} as const;
 
 const server = new Server(
   { name: 'wanderers-guide', version: '0.2.0' },
@@ -283,100 +411,93 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'find_encounter',
-      description: 'Retrieve encounters within a campaign.',
+      description: 'Retrieve encounters within a campaign, with an XP/difficulty breakdown. Set detailed to include full stat blocks of every creature.',
       inputSchema: {
         type: 'object',
         properties: {
           id: { type: 'number', description: 'Specific encounter ID' },
           campaign_id: { type: 'number', description: 'Filter by campaign ID. Defaults to WG_CAMPAIGN_ID env var if not provided.' },
+          detailed: { type: 'boolean', description: 'Include full stat blocks for each distinct creature (default false)' },
         },
       },
     },
     {
+      name: 'encounter_budget',
+      description:
+        'Calculate encounter XP and difficulty (GM Core Building Encounters) before creating it. ' +
+        'With no creatures, returns the XP budgets for the party. Creatures can be given by level, database ID, or exact name, with elite/weak adjustments.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          party_level: { type: 'number', description: 'Party level' },
+          party_size: { type: 'number', description: 'Number of players (default 4)' },
+          creatures: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'number', description: 'Creature ID' },
+                name: { type: 'string', description: 'Exact creature name, or a label when level is given' },
+                level: { type: 'number', description: 'Creature level (for custom creatures)' },
+                adjustment: { type: 'string', enum: ['ELITE', 'WEAK'] },
+                count: { type: 'number', description: 'How many (default 1)' },
+              },
+            },
+          },
+        },
+        required: ['party_level'],
+      },
+    },
+    {
+      name: 'preview_custom_creature',
+      description:
+        'Build a custom creature without saving it and show the stat block Wanderer\'s Guide will compute, plus warnings (unknown spells, traits, items). ' +
+        'Use it to check a custom enemy before passing the same object in create_encounter.custom_enemies.',
+      inputSchema: CUSTOM_CREATURE_SCHEMA,
+    },
+    {
       name: 'create_encounter',
-      description: 'Create a new encounter in a campaign with combatants and party info. Use find_creature to look up creature IDs first. Pass duplicate IDs to add multiple copies of the same creature (e.g. two harpies = [harpyId, harpyId]).',
+      description:
+        'Create an encounter with database creatures and/or custom creatures, and report its XP and difficulty. ' +
+        'Use find_creature / advanced_search for database IDs. Custom creatures are written as a normal PF2e stat block (spells, items, and traits by name) ' +
+        'or as an existing creature plus overrides (base_creature_id). Use dry_run with export_file to produce an importable JSON file without saving.',
       inputSchema: {
         type: 'object',
         properties: {
           campaign_id: { type: 'number', description: 'Campaign ID to create the encounter in. Defaults to WG_CAMPAIGN_ID env var if not provided.' },
           name: { type: 'string', description: 'Encounter name' },
-          description: { type: 'string', description: 'Encounter description / GM notes' },
-          party_level: { type: 'number', description: 'Average party level for XP budget display' },
-          party_size: { type: 'number', description: 'Number of players in the party' },
+          description: { type: 'string', description: 'Encounter description / GM notes (setup, tactics, XP budget)' },
+          party_level: { type: 'number', description: 'Average party level (needed for the XP report)' },
+          party_size: { type: 'number', description: 'Number of players in the party (default 4)' },
           enemy_creatures: {
             type: 'array',
-            description: 'Enemies to add from the database. Repeat an entry for multiple copies.',
+            description: 'Enemies from the database.',
             items: {
               type: 'object',
               properties: {
-                id: { type: 'number', description: 'Creature ID (from find_creature)' },
+                id: { type: 'number', description: 'Creature ID (from find_creature or advanced_search)' },
                 adjustment: {
                   type: 'string',
                   enum: ['ELITE', 'WEAK'],
-                  description: 'Apply elite (+2 to stats) or weak (-2 to stats) adjustment',
+                  description: 'GM Core elite (+2 stats, +1 level, more HP) or weak (-2 stats, -1 level, less HP) adjustment',
                 },
+                count: { type: 'number', description: 'How many copies (default 1)' },
               },
               required: ['id'],
             },
           },
           custom_enemies: {
             type: 'array',
-            description: 'Fully custom creatures embedded inline — no database ID needed. Pass the complete Creature object shape: name, level, rarity, details.description, operations (for stats/traits/speeds/immunities), abilities_base (for special abilities), spells, inventory. Operations use the WG engine format: adjValue MAX_HEALTH_BONUS for HP, adjValue AC_BONUS for AC−10, addBonusToValue SAVE_FORT/REFLEX/WILL/PERCEPTION for saves, setValue SPEED/SPEED_FLY/SPEED_SWIM for movement, giveTrait for traits.',
-            items: {
-              type: 'object',
-              additionalProperties: true,
-              properties: {
-                name: { type: 'string', description: 'Creature name' },
-                level: { type: 'number', description: 'Creature level' },
-                rarity: { type: 'string', enum: ['COMMON', 'UNCOMMON', 'RARE', 'UNIQUE'], description: 'Rarity (default COMMON)' },
-                details: {
-                  type: 'object',
-                  description: 'Flavor and display info',
-                  properties: {
-                    description: { type: 'string' },
-                    image_url: { type: 'string' },
-                    adjustment: { type: 'string', enum: ['ELITE', 'WEAK'] },
-                  },
-                },
-                operations: {
-                  type: 'array',
-                  description: 'Stat-defining operations (HP, AC, saves, speeds, traits, immunities, etc.)',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      id: { type: 'string' },
-                      type: { type: 'string' },
-                      data: { type: 'object', additionalProperties: true },
-                    },
-                    required: ['type'],
-                  },
-                },
-                abilities_base: {
-                  type: 'array',
-                  description: 'Special abilities and actions',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      name: { type: 'string' },
-                      actions: { type: 'string', enum: ['ONE-ACTION', 'TWO-ACTIONS', 'THREE-ACTIONS', 'REACTION', 'FREE-ACTION'] },
-                      trigger: { type: 'string' },
-                      description: { type: 'string' },
-                      traits: { type: 'array', items: { type: 'number' } },
-                    },
-                    required: ['name'],
-                  },
-                },
-                spells: { type: 'object', additionalProperties: true, description: 'Spell slots, list, and innate casts' },
-                inventory: { type: 'object', additionalProperties: true, description: 'Coins and items' },
-              },
-              required: ['name', 'level'],
-            },
+            description: 'Custom creatures. Each item uses the same shape as preview_custom_creature, plus an optional count.',
+            items: { ...CUSTOM_CREATURE_SCHEMA, properties: { ...CUSTOM_CREATURE_SCHEMA.properties, count: { type: 'number', description: 'How many copies (default 1)' } } },
           },
           ally_character_ids: {
             type: 'array',
             items: { type: 'number' },
             description: 'Character IDs to add as allied party members.',
           },
+          export_file: { type: 'string', description: 'Also write the encounter as an importable Wanderer\'s Guide JSON file to this path' },
+          dry_run: { type: 'boolean', description: 'Build and report without saving to Wanderer\'s Guide (combine with export_file)' },
         },
         required: ['name'],
       },
@@ -582,6 +703,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         break;
       case 'find_encounter':
         text = await findEncounter(args as Parameters<typeof findEncounter>[0]);
+        break;
+      case 'encounter_budget':
+        text = await encounterBudget(args as unknown as Parameters<typeof encounterBudget>[0]);
+        break;
+      case 'preview_custom_creature':
+        text = await previewCustomCreature(args as unknown as Parameters<typeof previewCustomCreature>[0]);
         break;
       case 'create_encounter':
         text = await createEncounter(args as Parameters<typeof createEncounter>[0]);

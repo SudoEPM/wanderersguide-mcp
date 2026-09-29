@@ -44,12 +44,21 @@ Requires Node.js 20+.
 
 The server starts without a key so clients can list its tools, prompts, and resources, but every API call returns an error until `WG_API_KEY` is set.
 
+## Generating encounters
+
+The main use case: ask Claude for something like *"a difficult encounter for 4 level-5 players in a flooded temple, mixing existing enemies with one custom creature"* (or use the `build_encounter` prompt).
+
+- **Finding creatures:** `advanced_search` filters by level range, traits, rarity, and name; `find_creature` shows complete stat blocks (strikes, spells, abilities, skills) so Claude can judge roles and tactics.
+- **Difficulty:** `encounter_budget` and every encounter response apply GM Core's XP rules (creature XP by level difference, budgets adjusted for party size, elite/weak level changes).
+- **Custom creatures** are written as a normal PF2e stat block: final AC, HP, saves, skills, strikes (`"2d8+6 slashing plus 1d6 fire"`), spells, items, traits, and languages by name. Or start from an existing creature with `base_creature_id` and override only what changes. The MCP converts this to Wanderer's Guide's creature format the same way the app's own importer does: it looks up spell, item, trait, and language IDs, and writes each stat as the difference from what the rules engine derives from level and attributes, so the sheet shows exactly the numbers you asked for. Standard abilities can be copied from any creature with `from_creature`.
+- **Saving:** `create_encounter` saves to a campaign (Wanderer's Guide requires Patreon tier 1+ to create encounters). With `dry_run` and `export_file` it writes the same `{ "version": 1, "encounter": … }` JSON that Wanderer's Guide exports, which you can import from any encounter's settings.
+
 ## Prompts
 
 | Prompt | Arguments | Description |
 |---|---|---|
 | `rules_lookup` | `question` | Answer a rules question, citing Wanderer's Guide text |
-| `build_encounter` | `campaign_id`, `party_level`, `party_size`, `difficulty`, `theme` | Design a balanced encounter by XP budget and save it to a campaign |
+| `build_encounter` | `party_level`, `party_size`, `difficulty`, `theme`, `campaign_id`, `custom_creatures` | Guided workflow: find thematic creatures, add a custom one if needed, hit the XP budget, save with tactics notes |
 | `explain_spell` | `spell_name`, `rank` | Plain-language spell breakdown, including heightening |
 | `character_summary` | `character_id` | Summarize a character sheet and suggest next-level options |
 | `generate_loot` | `party_level`, `theme` | Level-appropriate treasure using real items |
@@ -83,8 +92,10 @@ The server starts without a key so clients can list its tools, prompts, and reso
 | `find_content_update` | `POST /find-content-update` | Look up community errata submissions by state, user, or date range |
 | `find_character` | `POST /find-character` | Retrieve character sheets by ID, user UUID, or campaign ID |
 | `find_campaign` | `POST /find-campaign` | Retrieve campaigns by ID, user UUID, or join key |
-| `find_encounter` | `POST /find-encounter` | Retrieve encounters by ID or campaign ID |
-| `create_encounter` | `POST /create-encounter` | Create a new encounter in a campaign |
+| `find_encounter` | `POST /find-encounter` | Retrieve encounters by ID or campaign ID, with XP and difficulty; `detailed` adds full stat blocks |
+| `encounter_budget` | — (local) | XP budgets for a party, or the XP total and difficulty of a planned creature list |
+| `preview_custom_creature` | — (local, plus lookups) | Build a custom creature without saving and show the stat block Wanderer's Guide will compute |
+| `create_encounter` | `POST /create-encounter` | Create an encounter with database and custom creatures (elite/weak, counts), report XP; optional JSON export or dry run |
 | `update_encounter` | `POST /create-encounter` (with `id`) | Update an existing encounter's name, description, or color |
 | `delete_encounter` | `POST /delete-content` (`type: encounter`) | Permanently delete an encounter |
 

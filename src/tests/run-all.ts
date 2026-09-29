@@ -9,3 +9,4 @@ import './characters.test.js';
 import './campaigns-encounters.test.js';
 import './content.test.js';
 import './api-contract.test.js';
+import './creature-builder.test.js';

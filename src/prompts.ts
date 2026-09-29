@@ -32,23 +32,42 @@ const PROMPTS: PromptDef[] = [
   },
   {
     name: 'build_encounter',
-    description: 'Design a balanced encounter for a party and save it to a Wanderer\'s Guide campaign.',
+    description: 'Design a themed, balanced encounter mixing existing and custom creatures, and save it to a Wanderer\'s Guide campaign.',
     arguments: [
-      { name: 'campaign_id', description: 'Campaign ID to save the encounter in', required: true },
       { name: 'party_level', description: 'Average party level', required: true },
       { name: 'party_size', description: 'Number of players (default 4)' },
       { name: 'difficulty', description: 'trivial, low, moderate, severe, or extreme (default moderate)' },
       { name: 'theme', description: 'Setting or theme, e.g. "undead crypt" or "forest bandits"' },
+      { name: 'campaign_id', description: 'Campaign ID to save the encounter in (defaults to WG_CAMPAIGN_ID)' },
+      { name: 'custom_creatures', description: 'Include a custom creature: yes, no, or allowed (default allowed)' },
     ],
-    build: ({ campaign_id, party_level, party_size = '4', difficulty = 'moderate', theme }) =>
-      `Build a ${difficulty} Pathfinder 2e encounter for ${party_size} level-${party_level} characters` +
-      (theme ? ` with the theme "${theme}"` : '') +
-      '.\n\n' +
-      'Use the PF2e encounter XP budget (trivial 40, low 60, moderate 80, severe 120, extreme 160 for 4 ' +
-      'players; adjust by 10/20/20/30/40 per extra or missing player). Use find_creature to choose ' +
-      'creatures that fit the theme and budget, and show the XP math. Once the creature list is final, ' +
-      `call create_encounter with campaign_id ${campaign_id}, party_level ${party_level}, and ` +
-      `party_size ${party_size}, and include short tactics notes in the description.`,
+    build: ({ party_level, party_size = '4', difficulty = 'moderate', theme, campaign_id, custom_creatures = 'allowed' }) => {
+      const customStep =
+        custom_creatures === 'no'
+          ? '4. Use only existing creatures.'
+          : `4. ${custom_creatures === 'yes' ? 'Include' : 'Where no existing creature fits, add'} a custom creature. ` +
+            'Prefer base_creature_id with overrides (reskin or re-level a close match); otherwise write a full stat block. ' +
+            'Keep its numbers close to GM Core "Building Creatures" values for its level (compare with find_creature results of the same level), ' +
+            'use existing spells and items by exact name (check with find_spell, find_item, or advanced_search), ' +
+            'and copy standard abilities such as Reactive Strike with from_creature. Check it with preview_custom_creature and fix any warnings.';
+      return [
+        `Build a ${difficulty} Pathfinder 2e encounter for ${party_size} level-${party_level} characters` +
+          (theme ? ` with the theme "${theme}"` : '') + '.',
+        '',
+        'Workflow:',
+        `1. Call encounter_budget (party_level ${party_level}, party_size ${party_size}) for the XP target.`,
+        '2. Find thematic creatures with advanced_search (type "creature", a level range around the party level, traits such as "Undead" or "Fiend", or a partial name). ' +
+          'Read candidates with find_creature: their strikes, spells, and abilities show their role (brute, skirmisher, caster, support) and tactics.',
+        '3. Pick a mix of roles that fits the theme. Use count for groups and ELITE/WEAK adjustments to fine-tune. ' +
+          'Prefer a few meaningful creatures over many trivial ones; avoid creatures above party level +3 unless it is a solo boss.',
+        customStep,
+        '5. Check the total with encounter_budget and adjust until it lands in the requested difficulty.',
+        `6. Call create_encounter${campaign_id ? ` with campaign_id ${campaign_id},` : ''} party_level ${party_level}, party_size ${party_size}. ` +
+          "In the description, write the setup, terrain, each creature's tactics, and the XP budget (e.g. \"Severe: 120 XP\"). " +
+          'If the account cannot create encounters (Patreon tier 1+ is required), use dry_run with export_file to produce an importable JSON file.',
+        '7. Summarize for the GM: creatures and roles, XP math, tactics, and any custom stat blocks.',
+      ].join('\n');
+    },
   },
   {
     name: 'explain_spell',
