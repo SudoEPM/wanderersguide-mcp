@@ -37,10 +37,19 @@ describe('advanced_search', () => {
     assert.doesNotMatch(result, /Army Ant Swarm/);
   });
 
+  test('traits_any matches any trait; traits requires all; results list traits', { timeout: TIMEOUT }, async () => {
+    const any = await advancedSearch({ type: 'creature', level_min: 5, level_max: 5, traits_any: ['Air', 'Beast'], limit: 100 });
+    const all = await advancedSearch({ type: 'creature', level_min: 5, level_max: 5, traits: ['Air', 'Beast'], limit: 100 });
+    assert.match(all, /Harpy · Level 5 · \[Air, Beast, Humanoid\]/);
+    const count = (s: string) => Number(s.match(/^(\d+) creature result/)?.[1] ?? 0);
+    assert.ok(count(any) > count(all), 'traits_any should match more creatures than traits');
+  });
+
   test('pages results with limit and offset', { timeout: TIMEOUT }, async () => {
     const result = await advancedSearch({ type: 'feat', level_max: 1, actions: 'REACTION', limit: 3, offset: 3 });
     assert.match(result, /showing 4–6 \(use offset 6 for more\)/);
-    assert.equal(result.split('\n').length, 4);
+    assert.equal(result.split('\n').filter((l) => /\(ID: \d+\)$/.test(l)).length, 3);
+    assert.match(result, /^Common traits in these \d+ results/m);
   });
 
   test('rejects unknown trait names', { timeout: TIMEOUT }, async () => {

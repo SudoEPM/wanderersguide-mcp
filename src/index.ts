@@ -193,6 +193,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       description:
         'Filter Pathfinder 2e content of one type by properties: level or rank range, traits, rarity, spell tradition, action cost, item group, size, and partial name or description text. ' +
         'Use for questions like "rank 3 arcane fire spells", "level 5 rare creatures", or "level 1 reaction feats". ' +
+        'For creature themes, search by traits: e.g. traits_any ["Air", "Beast"] for sky predators, ["Undead"] for a crypt, ["Aquatic", "Amphibious"] for a flooded ruin, ["Fungus", "Plant"] for an overgrown cave. ' +
+        'Results list each entry\'s traits, and broad searches summarize the most common traits to help pick a theme. ' +
         'Searches official published sources only unless include_homebrew is true. Results are sorted by level/rank then name and paged with limit/offset.',
       inputSchema: {
         type: 'object',
@@ -204,7 +206,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           traits: {
             type: 'array',
             items: { oneOf: [{ type: 'string' }, { type: 'number' }] },
-            description: 'Trait names (e.g. "Fire", "Undead") or trait IDs; results must have all of them',
+            description: 'Trait names (e.g. "Fire", "Undead") or trait IDs; results must have ALL of them',
+          },
+          traits_any: {
+            type: 'array',
+            items: { oneOf: [{ type: 'string' }, { type: 'number' }] },
+            description: 'Trait names or IDs; results must have AT LEAST ONE of them (best for themes, e.g. ["Air", "Beast"])',
           },
           level_min: { type: 'number', description: 'Minimum level (feats, items, creatures)' },
           level_max: { type: 'number', description: 'Maximum level (feats, items, creatures)' },

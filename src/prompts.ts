@@ -56,7 +56,9 @@ const PROMPTS: PromptDef[] = [
         '',
         'Workflow:',
         `1. Call encounter_budget (party_level ${party_level}, party_size ${party_size}) for the XP target.`,
-        '2. Find thematic creatures with advanced_search (type "creature", a level range around the party level, traits such as "Undead" or "Fiend", or a partial name). ' +
+        '2. Find thematic creatures with advanced_search (type "creature", level range around the party level). Traits are the best theme filter: ' +
+          'translate the theme into creature traits and use traits_any for alternatives (e.g. sky predators: Air, Beast; crypt: Undead, Spirit; flooded ruin: Aquatic, Amphibious; ' +
+          'fire cult: Fire, Human, Elemental; overgrown cave: Fungus, Plant, Animal) and traits for must-haves. Use the "common traits" summary of a broad search to discover more. ' +
           'Read candidates with find_creature: their strikes, spells, and abilities show their role (brute, skirmisher, caster, support) and tactics.',
         '3. Pick a mix of roles that fits the theme. Use count for groups and ELITE/WEAK adjustments to fine-tune. ' +
           'Prefer a few meaningful creatures over many trivial ones; avoid creatures above party level +3 unless it is a solo boss.',
